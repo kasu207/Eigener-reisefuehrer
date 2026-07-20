@@ -24,10 +24,15 @@ export async function GET(
     return NextResponse.json({ error: "Nicht gefunden." }, { status: 404 });
   }
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  // Im Container rendert Chromium die eigene App über die interne URL;
+  // APP_URL bleibt die öffentliche Adresse für E-Mail-Links.
+  const appUrl =
+    process.env.PDF_INTERNAL_URL ?? process.env.APP_URL ?? "http://localhost:3000";
   const executablePath = process.env.CHROMIUM_PATH || undefined;
+  // z. B. "--no-sandbox --disable-dev-shm-usage" beim Betrieb als Root im Container
+  const args = (process.env.CHROMIUM_ARGS ?? "").split(" ").filter(Boolean);
 
-  const browser = await chromium.launch({ executablePath });
+  const browser = await chromium.launch({ executablePath, args });
   try {
     const page = await browser.newPage();
     await page.goto(`${appUrl}/guide/${token}`, { waitUntil: "networkidle" });

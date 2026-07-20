@@ -1,0 +1,63 @@
+# Produktions-Setup für einen einzelnen Server (z. B. Hetzner):
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Konfiguration kommt aus der .env im selben Verzeichnis (siehe DEPLOY.md).
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reisefuehrer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+      POSTGRES_DB: reisefuehrer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reisefuehrer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://reisefuehrer:${POSTGRES_PASSWORD}@db:5432/reisefuehrer
+      APP_URL: ${APP_URL:?APP_URL in .env setzen}
+      # PDF-Rendering ruft die eigene App container-intern auf
+      PDF_INTERNAL_URL: http://localhost:3000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      AI_MODE: ${AI_MODE:-live}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD in .env setzen}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      DATA_RETENTION_MONTHS: ${DATA_RETENTION_MONTHS:-12}
+    # Schema anwenden, dann starten
+    command: sh -c "npx prisma db push --skip-generate && npm start"
+    ports:
+      - "80:3000"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://reisefuehrer:${POSTGRES_PASSWORD}@db:5432/reisefuehrer
+      APP_URL: ${APP_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      AI_MODE: ${AI_MODE:-live}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      DATA_RETENTION_MONTHS: ${DATA_RETENTION_MONTHS:-12}
+    command: npm run worker
+
+volumes:
+  pgdata:
