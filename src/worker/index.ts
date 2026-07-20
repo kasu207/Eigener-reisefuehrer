@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { prisma } from "../lib/db";
 import { generateGuideForRequest } from "../lib/guide-generation";
+import { processKnowledgeDocument } from "../lib/knowledge";
 
 /**
  * DB-basierte Job-Queue (Anforderung 7): pollt `guide_requests` mit Status
@@ -48,6 +49,46 @@ async function processOne(): Promise<boolean> {
   return true;
 }
 
+/** Wissensquellen (Bücher/Blogs) einlesen und von der KI aufbereiten lassen. */
+async function claimNextDocument(): Promise<string | null> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    UPDATE knowledge_documents
+    SET status = 'processing'
+    WHERE id = (
+      SELECT id FROM knowledge_documents
+      WHERE status = 'uploaded' AND moderation_status = 'approved'
+      ORDER BY created_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    RETURNING id
+  `;
+  return rows[0]?.id ?? null;
+}
+
+async function processOneDocument(): Promise<boolean> {
+  const id = await claimNextDocument();
+  if (!id) return false;
+
+  console.log(`[worker] Analysiere Wissensquelle ${id} ...`);
+  try {
+    const count = await processKnowledgeDocument(id);
+    await prisma.knowledgeDocument.update({
+      where: { id },
+      data: { status: "analyzed", error: null },
+    });
+    console.log(`[worker] Wissensquelle ${id}: ${count} Notizen angelegt`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[worker] Fehler bei Wissensquelle ${id}:`, message);
+    await prisma.knowledgeDocument.update({
+      where: { id },
+      data: { status: "failed", error: message.slice(0, 2000) },
+    });
+  }
+  return true;
+}
+
 /** DSGVO-Löschroutine: Personendaten nach konfigurierbarer Frist entfernen. */
 async function cleanupOldPersonalData() {
   const months = Number(process.env.DATA_RETENTION_MONTHS ?? "12");
@@ -68,8 +109,9 @@ async function main() {
         await cleanupOldPersonalData();
         lastCleanup = Date.now();
       }
-      const worked = await processOne();
-      if (!worked) await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      const workedGuide = await processOne();
+      const workedDoc = await processOneDocument();
+      if (!workedGuide && !workedDoc) await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     } catch (err) {
       console.error("[worker] Unerwarteter Fehler:", err);
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));

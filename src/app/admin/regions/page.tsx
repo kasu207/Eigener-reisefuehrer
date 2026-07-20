@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { upsertRegion } from "../actions";
 
@@ -20,6 +21,10 @@ export default async function RegionsPage() {
             <li key={r.id} className="rounded border border-neutral-200 bg-white p-3">
               <strong>{r.name}</strong> ({r.slug}, {r.country}) –{" "}
               {r._count.places} Orte, {r._count.hikes} Wanderungen
+              {" · "}
+              <Link href={`/admin/regions/${r.id}`} className="text-(--color-accent) underline">
+                „Gut zu wissen"-Kapitel pflegen
+              </Link>
             </li>
           ))}
           {regions.length === 0 && <li className="text-neutral-500">Noch keine Regionen.</li>}

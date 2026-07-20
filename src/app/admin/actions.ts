@@ -246,6 +246,124 @@ export async function importRedditSources(fd: FormData) {
   revalidatePath(`/admin/places/${placeId}`);
 }
 
+// ---------- Wissensbibliothek (community-gespeist, kuratiert) ----------
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // Claude-PDF-Limit beachten (32 MB Request)
+
+/** Buch/Reiseführer als Datei hochladen (PDF oder Text/Markdown). */
+export async function uploadKnowledgeFile(fd: FormData) {
+  const file = fd.get("file");
+  if (!(file instanceof File) || file.size === 0) return;
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("Datei zu groß (max. 20 MB)");
+  }
+  const allowed = ["application/pdf", "text/plain", "text/markdown"];
+  if (!allowed.includes(file.type)) {
+    throw new Error("Nur PDF-, TXT- oder Markdown-Dateien");
+  }
+  const bytes = Buffer.from(await file.arrayBuffer());
+  await prisma.knowledgeDocument.create({
+    data: {
+      regionId: str(fd, "regionId"),
+      kind: str(fd, "kind") === "guidebook" ? "guidebook" : "book",
+      title: str(fd, "title") || file.name,
+      fileName: file.name,
+      mimeType: file.type,
+      fileData: bytes,
+      status: "uploaded",
+      moderationStatus: "approved", // Redaktions-Upload ist direkt freigegeben
+    },
+  });
+  revalidatePath("/admin/knowledge");
+}
+
+/** Blog/Artikel per URL verlinken. */
+export async function addKnowledgeUrl(fd: FormData) {
+  await prisma.knowledgeDocument.create({
+    data: {
+      regionId: str(fd, "regionId"),
+      kind: str(fd, "kind") === "article" ? "article" : "blog",
+      title: str(fd, "title") || str(fd, "url"),
+      url: str(fd, "url"),
+      status: "uploaded",
+      moderationStatus: "approved",
+    },
+  });
+  revalidatePath("/admin/knowledge");
+}
+
+export async function deleteKnowledgeDocument(fd: FormData) {
+  await prisma.knowledgeDocument.delete({ where: { id: str(fd, "id") } });
+  revalidatePath("/admin/knowledge");
+}
+
+/** Erneut analysieren lassen (z. B. nach Modell-Update). */
+export async function reanalyzeKnowledgeDocument(fd: FormData) {
+  await prisma.knowledgeDocument.update({
+    where: { id: str(fd, "id") },
+    data: { status: "uploaded", error: null },
+  });
+  revalidatePath("/admin/knowledge");
+}
+
+/** Moderation: Nutzer-Einreichung freigeben (geht danach in die Analyse). */
+export async function approveKnowledgeDocument(fd: FormData) {
+  await prisma.knowledgeDocument.update({
+    where: { id: str(fd, "id") },
+    data: { moderationStatus: "approved", status: "uploaded", error: null },
+  });
+  revalidatePath("/admin/knowledge");
+}
+
+/** Moderation: Nutzer-Einreichung ablehnen. */
+export async function rejectKnowledgeDocument(fd: FormData) {
+  await prisma.knowledgeDocument.update({
+    where: { id: str(fd, "id") },
+    data: {
+      moderationStatus: "rejected",
+      moderationNote: str(fd, "note") || "Redaktionell abgelehnt",
+    },
+  });
+  revalidatePath("/admin/knowledge");
+}
+
+export async function deleteKnowledgeChunk(fd: FormData) {
+  await prisma.knowledgeChunk.delete({ where: { id: str(fd, "id") } });
+  revalidatePath("/admin/knowledge");
+}
+
+// ---------- Regions-Infos ("Gut zu wissen") ----------
+
+export async function addRegionInfo(fd: FormData) {
+  const regionId = str(fd, "regionId");
+  await prisma.regionInfo.create({
+    data: {
+      regionId,
+      title: str(fd, "title"),
+      content: str(fd, "content"),
+      sortOrder: num(fd, "sortOrder"),
+    },
+  });
+  revalidatePath(`/admin/regions/${regionId}`);
+}
+
+export async function updateRegionInfo(fd: FormData) {
+  const info = await prisma.regionInfo.update({
+    where: { id: str(fd, "id") },
+    data: {
+      title: str(fd, "title"),
+      content: str(fd, "content"),
+      sortOrder: num(fd, "sortOrder"),
+    },
+  });
+  revalidatePath(`/admin/regions/${info.regionId}`);
+}
+
+export async function deleteRegionInfo(fd: FormData) {
+  const info = await prisma.regionInfo.delete({ where: { id: str(fd, "id") } });
+  revalidatePath(`/admin/regions/${info.regionId}`);
+}
+
 // ---------- Guide-Requests ----------
 
 /** Neu-Generierung anstoßen (Anforderung 4.5): Status zurück auf pending. */

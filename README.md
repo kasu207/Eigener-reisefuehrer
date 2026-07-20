@@ -78,13 +78,40 @@ Admin-Interface: `http://localhost:3000/admin` (Basic Auth, `ADMIN_USER`/`ADMIN_
 npm test
 ```
 
-Deckt die Auswahl-Engine (harte Filter, Zielmengen, Determinismus) und den
+Deckt die Auswahl-Engine (harte Filter, Zielmengen, Determinismus,
+Anpassungs-Modifikatoren), das Wissensdatenbank-Matching und den
 Faktentreue-Check ab.
 
-Für einen End-to-End-Test ohne Claude-API-Key (Auswahl-Engine, Guide-Ansicht,
-PDF-Export mit Dummy-Texten): zuerst über `/fragebogen` einen Request anlegen,
-dann `npx tsx scripts/dev-create-test-guide.ts` ausführen – das Skript gibt den
-Guide-Link-Token aus.
+## Entwickeln ohne API-Kosten (Mock-Modus)
+
+`AI_MODE="mock"` in der `.env` ersetzt alle Claude-Aufrufe durch
+deterministische Platzhalter – der komplette Ablauf (Fragebogen → Queue →
+Auswahl-Engine → Guide → Anpassungen → PDF, inkl. Quellen-Analyse in der
+Wissensbibliothek) funktioniert dann ohne einen einzigen API-Token.
+
+Zur Einordnung: Das System **trainiert kein Modell**, es ist eine
+RAG-Architektur. Das "Wissen" liegt in der eigenen Postgres-Datenbank
+(Orte, Wanderungen, Wissens-Notizen) und wächst kostenlos – Tokens kosten
+nur (a) die einmalige Analyse neuer Quellen und (b) die Textgenerierung
+pro Guide. Kosten-Hebel für den Live-Betrieb: kleineres Modell für die
+Quellen-Analyse (`ANTHROPIC_MODEL`-Wechsel pro Lauf), Batch-API (−50 %)
+für nicht-eilige Analysen, Prompt-Caching für den stabilen Systemprompt.
+
+## Community-Wissensdatenbank
+
+Nutzer schlagen unter `/beitragen` Quellen vor. Jede Einreichung durchläuft
+zwei Stufen, bevor sie in Guides landet:
+
+1. **Redaktionelle Moderation** im Admin (`/admin/knowledge`): freigeben
+   oder ablehnen.
+2. **Automatische KI-Sicherheitsprüfung** bei der Analyse: jugendgefährdende
+   (FSK 18), extremistische/volksverhetzende oder strafrechtlich relevante
+   Inhalte sowie Spam werden automatisch abgelehnt (`moderation_status =
+   rejected`) und erzeugen keine Notizen.
+
+Die KI legt aus freigegebenen Quellen paraphrasierte, nach Interessen
+getaggte Notizen an (nie wörtliche Übernahmen, Quellenangabe am Dokument).
+Passende Notizen fließen als Kontext in die Guide-Generierung ein.
 
 ## DSGVO
 

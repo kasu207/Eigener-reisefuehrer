@@ -2,7 +2,12 @@
  * Versand des Ergebnis-Links per Transaktionsmail (Resend).
  * Ohne RESEND_API_KEY wird der Link nur geloggt (lokale Entwicklung).
  */
-export async function sendGuideReadyEmail(to: string, guideUrl: string, firstNames: string) {
+export async function sendGuideReadyEmail(
+  to: string,
+  guideUrl: string,
+  firstNames: string,
+  isRevision = false
+) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.MAIL_FROM ?? "Reiseführer <onboarding@resend.dev>";
 
@@ -20,12 +25,18 @@ export async function sendGuideReadyEmail(to: string, guideUrl: string, firstNam
     body: JSON.stringify({
       from,
       to: [to],
-      subject: "Euer persönlicher Reiseführer ist fertig",
+      subject: isRevision
+        ? "Euer Reiseführer wurde nach euren Wünschen angepasst"
+        : "Euer persönlicher Reiseführer ist fertig",
       html: `
         <p>Hallo ${escapeHtml(firstNames)},</p>
-        <p>euer persönlicher Reiseführer ist fertig! Ihr findet ihn unter diesem Link:</p>
+        <p>${
+          isRevision
+            ? "wir haben euren Reiseführer nach euren Wünschen überarbeitet. Ihr findet die neue Version unter eurem gewohnten Link:"
+            : "euer persönlicher Reiseführer ist fertig! Ihr findet ihn unter diesem Link:"
+        }</p>
         <p><a href="${guideUrl}">${guideUrl}</a></p>
-        <p>Der Link ist nur für euch bestimmt – bitte nicht öffentlich teilen.</p>
+        <p>Der Link ist nur für euch bestimmt. Zum Teilen mit Mitreisenden gibt es auf der Guide-Seite einen eigenen Lese-Link.</p>
         <p>Viel Freude bei der Reise!</p>
       `,
     }),

@@ -16,7 +16,10 @@ export async function GET(
 ) {
   const { token } = await params;
 
-  const guide = await prisma.guide.findUnique({ where: { publicToken: token } });
+  // Besitzer- und Lese-Link dürfen beide das PDF laden
+  const guide = await prisma.guide.findFirst({
+    where: { OR: [{ publicToken: token }, { shareToken: token }] },
+  });
   if (!guide) {
     return NextResponse.json({ error: "Nicht gefunden." }, { status: 404 });
   }

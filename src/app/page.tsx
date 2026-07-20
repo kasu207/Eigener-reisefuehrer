@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { LakeHero } from "@/components/illustrations";
 
 export default function HomePage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-24">
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <div className="mb-10 overflow-hidden rounded-3xl border border-neutral-200 shadow-sm">
+        <LakeHero className="block w-full" />
+      </div>
       <p className="mb-4 text-sm uppercase tracking-widest text-(--color-accent)">
         Comer See · Italien
       </p>
@@ -34,6 +38,16 @@ export default function HomePage() {
             <p className="mt-2 text-sm leading-relaxed text-neutral-600">{text}</p>
           </div>
         ))}
+      </div>
+      <div className="mt-14 rounded-2xl bg-(--color-accent-soft)/40 p-6">
+        <h2 className="font-serif text-xl">Du kennst gute Quellen zum Comer See?</h2>
+        <p className="mt-2 text-sm text-neutral-700">
+          Unsere Wissensdatenbank wächst durch die Community: Schlag Blogs und
+          Artikel vor – kuratiert, geprüft und mit Quellenangabe aufbereitet.
+        </p>
+        <Link href="/beitragen" className="mt-3 inline-block text-(--color-accent) underline">
+          Quelle vorschlagen
+        </Link>
       </div>
     </main>
   );

@@ -49,18 +49,102 @@ enum SourceType {
   own
 }
 
+enum DocumentKind {
+  book
+  guidebook
+  blog
+  article
+}
+
+enum DocumentStatus {
+  uploaded
+  processing
+  analyzed
+  failed
+}
+
+/// Moderations-Workflow für die community-gespeiste Wissensdatenbank:
+/// Nutzer-Einreichungen starten als `pending` und werden erst nach
+/// redaktioneller Freigabe analysiert. Die KI-Analyse prüft zusätzlich
+/// auf unzulässige Inhalte (FSK 18, extremistisch, strafrechtlich relevant)
+/// und lehnt solche Quellen automatisch ab.
+enum ModerationStatus {
+  pending
+  approved
+  rejected
+}
+
+/// Wissensquellen: hochgeladene Bücher/Reiseführer (PDF/Text) oder verlinkte
+/// Blogs – von der Redaktion ODER von Nutzern eingereicht. Die KI liest sie
+/// ein und legt paraphrasierte, getaggte Notizen (KnowledgeChunk) an –
+/// niemals wörtliche Übernahmen. So wächst eine kuratierte, von vielen
+/// Nutzern gespeiste Wissensdatenbank.
+model KnowledgeDocument {
+  id               String           @id @default(cuid())
+  regionId         String           @map("region_id")
+  region           Region           @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  kind             DocumentKind
+  title            String
+  url              String? // bei Blogs/Artikeln
+  fileName         String?          @map("file_name")
+  mimeType         String?          @map("mime_type")
+  fileData         Bytes?           @map("file_data")
+  status           DocumentStatus   @default(uploaded)
+  moderationStatus ModerationStatus @default(approved) @map("moderation_status")
+  moderationNote   String           @default("") @map("moderation_note")
+  submitterName    String           @default("") @map("submitter_name")
+  submittedByUser  Boolean          @default(false) @map("submitted_by_user")
+  error            String?
+  createdAt        DateTime         @default(now()) @map("created_at")
+  chunks           KnowledgeChunk[]
+
+  @@map("knowledge_documents")
+}
+
+/// Eine aufbereitete Erkenntnis aus einer Wissensquelle: eigene Formulierung,
+/// getaggt mit Interessen (Fragebogen-Matching) und ggf. Ortsnamen.
+model KnowledgeChunk {
+  id         String            @id @default(cuid())
+  documentId String            @map("document_id")
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  title      String
+  content    String
+  interests  String[] // Keys aus dem Fragebogen (wandern, kulinarik, ...)
+  placeNames String[]          @map("place_names")
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  @@map("knowledge_chunks")
+}
+
 model Region {
-  id          String  @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
-  slug        String  @unique
+  slug        String              @unique
   country     String
-  centerLat   Float   @map("center_lat")
-  centerLng   Float   @map("center_lng")
-  description String  @default("")
+  centerLat   Float               @map("center_lat")
+  centerLng   Float               @map("center_lng")
+  description String              @default("")
   places      Place[]
   hikes       Hike[]
+  infos       RegionInfo[]
+  documents   KnowledgeDocument[]
 
   @@map("regions")
+}
+
+/// Standard-Infos zur Region wie in klassischen Reiseführern:
+/// Währung, Geschichte, kleiner Sprachführer, Trinkwasser usw.
+/// Werden redaktionell gepflegt und in jedem Guide als Kapitel
+/// "Gut zu wissen" ausgespielt.
+model RegionInfo {
+  id        String @id @default(cuid())
+  regionId  String @map("region_id")
+  region    Region @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  sortOrder Int    @default(0) @map("sort_order")
+
+  @@map("region_infos")
 }
 
 model Place {
@@ -144,6 +228,9 @@ model GuideRequest {
   id            String        @id @default(cuid())
   email         String
   questionnaire Json
+  /// Nachträgliche Nutzer-Wünsche (z. B. "mehr Wandern"), Array von
+  /// { presets: string[], text: string, createdAt: string }
+  adjustments   Json          @default("[]")
   status        RequestStatus @default(pending)
   error         String?
   createdAt     DateTime      @default(now()) @map("created_at")
@@ -159,6 +246,8 @@ model Guide {
   selection      Json
   content        Json
   publicToken    String       @unique @map("public_token")
+  /// Read-only-Link zum Teilen mit Mitreisenden (ohne Anpassungs-Rechte)
+  shareToken     String       @unique @map("share_token")
   pdfUrl         String?      @map("pdf_url")
   generatedAt    DateTime     @default(now()) @map("generated_at")
   modelUsed      String       @map("model_used")

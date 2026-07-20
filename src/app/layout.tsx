@@ -17,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="flex gap-6 border-t border-neutral-200 pt-6">
             <Link href="/impressum" className="hover:text-neutral-800">Impressum</Link>
             <Link href="/datenschutz" className="hover:text-neutral-800">Datenschutz</Link>
+            <Link href="/beitragen" className="hover:text-neutral-800">Quelle vorschlagen</Link>
           </div>
         </footer>
       </body>

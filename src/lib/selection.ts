@@ -1,5 +1,6 @@
 import type { Questionnaire, Interest } from "./questionnaire";
 import { tripDays } from "./questionnaire";
+import { emptyModifiers, type SelectionModifiers } from "./adjustments";
 
 /**
  * Deterministische Auswahl-Engine (Anforderung 4.2).
@@ -115,16 +116,41 @@ export function hikePassesHardFilters(h: SelectableHike, q: Questionnaire): bool
 }
 
 /** Weiches Scoring: Interessen-Übereinstimmung, Qualität, Nähe zur Unterkunft. */
-export function scorePlace(p: SelectablePlace, q: Questionnaire): number {
+export function scorePlace(
+  p: SelectablePlace,
+  q: Questionnaire,
+  mods: SelectionModifiers = emptyModifiers()
+): number {
   let score = p.qualityScore; // 1-5
 
   for (const interest of q.interests) {
-    const w = interestWeight(q, interest.key);
+    const w = interestWeight(q, interest.key) + (mods.interestBoosts[interest.key] ?? 0);
     const tags = INTEREST_TAGS[interest.key];
     const tagMatches = p.tags.filter((t) => tags.includes(t.toLowerCase())).length;
     score += Math.min(tagMatches, 2) * w;
     const types = INTEREST_TYPES[interest.key];
     if (types?.includes(p.type)) score += w;
+  }
+
+  // Boost aus Anpassungswünschen auch für Interessen, die im Fragebogen
+  // nicht gewählt wurden (z. B. "mehr Kultur" nachträglich)
+  for (const [key, boost] of Object.entries(mods.interestBoosts)) {
+    if (q.interests.some((i) => i.key === key)) continue;
+    const tags = INTEREST_TAGS[key as Interest] ?? [];
+    const tagMatches = p.tags.filter((t) => tags.includes(t.toLowerCase())).length;
+    score += Math.min(tagMatches, 2) * boost;
+    const types = INTEREST_TYPES[key as Interest];
+    if (types?.includes(p.type)) score += boost;
+  }
+
+  // "Mehr günstige Tipps": günstige Restaurants/Bars bevorzugen
+  if (
+    mods.budgetFoodBoost &&
+    (p.type === "restaurant" || p.type === "bar") &&
+    p.priceLevel != null &&
+    p.priceLevel <= 2
+  ) {
+    score += 3;
   }
 
   if (q.accommodation.lat != null && q.accommodation.lng != null) {
@@ -136,9 +162,13 @@ export function scorePlace(p: SelectablePlace, q: Questionnaire): number {
   return score;
 }
 
-export function scoreHike(h: SelectableHike, q: Questionnaire): number {
+export function scoreHike(
+  h: SelectableHike,
+  q: Questionnaire,
+  mods: SelectionModifiers = emptyModifiers()
+): number {
   let score = 3;
-  score += interestWeight(q, "wandern") * 2;
+  score += (interestWeight(q, "wandern") + (mods.interestBoosts["wandern"] ?? 0)) * 2;
   const fitnessMatch: Record<string, string> = { niedrig: "easy", mittel: "medium", hoch: "hard" };
   if (fitnessMatch[q.fitnessLevel] === h.difficulty) score += 2;
   if (q.accommodation.lat != null && q.accommodation.lng != null) {
@@ -180,24 +210,28 @@ function pickWithSpread<T extends { lat: number; lng: number }>(
   return picked;
 }
 
-/** Zielmengen abhängig von Reisedauer und Tempo (Anforderung 4.2). */
-export function computeTargets(q: Questionnaire): Selection["targets"] {
+/** Zielmengen abhängig von Reisedauer, Tempo (4.2) und Anpassungswünschen. */
+export function computeTargets(
+  q: Questionnaire,
+  mods: SelectionModifiers = emptyModifiers()
+): Selection["targets"] {
   const days = tripDays(q);
   const paceFactor = q.pace === "entspannt" ? 0.75 : q.pace === "vollgepackt" ? 1.3 : 1;
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
   return {
     places: clamp(days * 4 * paceFactor, 25, 40),
-    hikes: clamp(days * 0.8 * paceFactor, 4, 8),
-    restaurants: clamp(days * 1.5 * paceFactor, 8, 15),
+    hikes: clamp(days * 0.8 * paceFactor, 4, 8) + mods.extraHikes,
+    restaurants: clamp(days * 1.5 * paceFactor, 8, 15) + mods.extraRestaurants,
   };
 }
 
 export function selectContent(
   places: SelectablePlace[],
   hikes: SelectableHike[],
-  q: Questionnaire
+  q: Questionnaire,
+  mods: SelectionModifiers = emptyModifiers()
 ): Selection {
-  const targets = computeTargets(q);
+  const targets = computeTargets(q, mods);
 
   const isRestaurant = (p: SelectablePlace) => p.type === "restaurant" || p.type === "bar";
   const isPractical = (p: SelectablePlace) => p.type === "practical";
@@ -205,22 +239,23 @@ export function selectContent(
   const poiCandidates = places
     .filter((p) => !isRestaurant(p) && !isPractical(p))
     .filter((p) => placePassesHardFilters(p, q))
-    .map((p) => ({ item: p, score: scorePlace(p, q) }));
+    .map((p) => ({ item: p, score: scorePlace(p, q, mods) }));
 
   const restaurantCandidates = places
     .filter(isRestaurant)
     .filter((p) => restaurantPassesHardFilters(p, q))
-    .map((p) => ({ item: p, score: scorePlace(p, q) }));
+    .map((p) => ({ item: p, score: scorePlace(p, q, mods) }));
 
   const hikeCandidates = hikes
     .filter((h) => hikePassesHardFilters(h, q))
     .map((h) => ({
       item: { ...h, lat: h.startLat, lng: h.startLng },
-      score: scoreHike(h, q),
+      score: scoreHike(h, q, mods),
     }));
 
   // Wanderungen nur, wenn Interesse vorhanden oder Fitness es nahelegt
-  const wantsHiking = q.interests.some((i) => i.key === "wandern");
+  const wantsHiking =
+    q.interests.some((i) => i.key === "wandern") || (mods.interestBoosts["wandern"] ?? 0) > 0;
   const hikeTarget = wantsHiking ? targets.hikes : Math.min(2, targets.hikes);
 
   const pickedPlaces = pickWithSpread(poiCandidates, targets.places);

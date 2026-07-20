@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import type { Questionnaire } from "../questionnaire";
 import { INTEREST_LABELS, tripDays } from "../questionnaire";
 import type { GuideContent, Chapter } from "../guide-content";
+import { isMock, mockPersonalText, mockReason } from "./mock";
 
 /**
  * KI-Textgenerierung (Anforderung 4.3).
@@ -127,11 +128,26 @@ function formatEntries(entries: EntryContext[]): string {
 export async function generateChapter(
   q: Questionnaire,
   job: ChapterJob,
-  usage: TokenUsage
+  usage: TokenUsage,
+  extraContext = ""
 ): Promise<Chapter> {
+  // Mock-Modus: deterministische Texte ohne API-Aufruf (keine Token-Kosten)
+  if (isMock()) {
+    return {
+      key: job.key,
+      kind: job.kind,
+      title: job.workingTitle,
+      introText: `Eine handverlesene Auswahl für euch. (Mock-Kapiteleinleitung)`,
+      entries: job.entries.map((e) => ({
+        id: e.id,
+        personalText: mockPersonalText(e.name),
+        reason: mockReason(),
+      })),
+    };
+  }
   const prompt = `FRAGEBOGEN-ZUSAMMENFASSUNG:
 ${summarizeQuestionnaire(q)}
-
+${extraContext ? `\n${extraContext}\n` : ""}
 KAPITEL: ${job.workingTitle}
 AUFGABE: ${job.instruction}
 
@@ -156,11 +172,26 @@ ${formatEntries(job.entries)}`;
 export async function generateIntro(
   q: Questionnaire,
   chapterSummaries: string[],
-  usage: TokenUsage
+  usage: TokenUsage,
+  extraContext = ""
 ): Promise<Pick<GuideContent, "intro" | "daySuggestions">> {
+  if (isMock()) {
+    const days = tripDays(q);
+    return {
+      intro: {
+        title: `Euer ${q.regionSlug === "comer-see" ? "Comer See" : "Reiseziel"}`,
+        text: `Hallo ${q.firstNames}! Dies ist eine Mock-Einleitung ohne API-Kosten – im Live-Modus steht hier eure persönliche Einleitung mit Bezug auf Zeitraum, Anlass und Interessen.`,
+      },
+      daySuggestions: Array.from({ length: days }, (_, i) => ({
+        day: i + 1,
+        title: `Tag ${i + 1} (Mock)`,
+        text: "Ein Tagesvorschlag aus den Kapiteln dieses Guides. (Mock)",
+      })),
+    };
+  }
   const prompt = `FRAGEBOGEN-ZUSAMMENFASSUNG:
 ${summarizeQuestionnaire(q)}
-
+${extraContext ? `\n${extraContext}\n` : ""}
 Der Reiseführer enthält folgende Kapitel:
 ${chapterSummaries.map((s) => `- ${s}`).join("\n")}
 
@@ -176,5 +207,5 @@ AUFGABE:
 }
 
 export function modelUsed(): string {
-  return MODEL;
+  return isMock() ? "mock" : MODEL;
 }

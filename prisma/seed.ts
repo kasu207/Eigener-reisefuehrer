@@ -125,7 +125,90 @@ async function main() {
     });
   }
 
-  console.log("Seed abgeschlossen: Region Comer See mit Beispiel-Orten und Wanderungen.");
+  // "Gut zu wissen": Standard-Infos wie in klassischen Reiseführern
+  const regionInfos = [
+    {
+      title: "Währung & Bezahlen",
+      sortOrder: 10,
+      content:
+        "In Italien zahlt ihr mit dem Euro. Kartenzahlung ist fast überall möglich, auch für Kleinbeträge – ein wenig Bargeld für Märkte, Parkautomaten und kleine Bars schadet trotzdem nicht. Trinkgeld ist keine Pflicht: Aufrunden oder das 'coperto' (Gedeck, meist 1–3 € pro Person) auf der Rechnung sind üblich.",
+    },
+    {
+      title: "Kleine Geschichte des Comer Sees",
+      sortOrder: 20,
+      content:
+        "Schon die Römer schätzten den Lario, wie der See auf Italienisch heißt – Plinius der Jüngere besaß hier Villen. Im 19. Jahrhundert wurde der See zum Sehnsuchtsziel europäischer Adliger und Künstler; aus dieser Zeit stammen die berühmten Villen und Gärten. Bis heute leben viele Orte vom Zusammenspiel aus Seidentradition (Como), Fischerei und Tourismus.",
+    },
+    {
+      title: "Kleiner Sprachführer",
+      sortOrder: 30,
+      content:
+        "Buongiorno – Guten Tag · Buonasera – Guten Abend · Grazie (mille) – Danke (sehr) · Per favore – Bitte · Il conto, per favore – Die Rechnung, bitte · Quanto costa? – Was kostet das? · Dov'è il traghetto? – Wo ist die Fähre? · Un tavolo per due – Ein Tisch für zwei · Andata e ritorno – Hin- und Rückfahrt.",
+    },
+    {
+      title: "Trinkwasser",
+      sortOrder: 40,
+      content:
+        "Das Leitungswasser ist trinkbar. In vielen Dörfern gibt es öffentliche Brunnen ('acqua potabile'), an denen ihr Flaschen auffüllen könnt – gut für Wanderungen und die Umwelt. Steht 'acqua non potabile' am Brunnen, ist das Wasser kein Trinkwasser.",
+    },
+    {
+      title: "Anreise & Verkehr",
+      sortOrder: 50,
+      content:
+        "Die Bahnlinie Mailand–Lecco–Tirano hält u. a. in Varenna, die Linie Mailand–Como in Como. Auf dem See verbindet die Navigazione Laghi die Orte; das Dreieck Bellagio–Varenna–Menaggio fährt besonders häufig, inklusive Autofähre. Die Uferstraßen sind schmal und im Sommer voll – plant Puffer ein und nutzt, wo möglich, Fähre und Zug.",
+    },
+  ];
+  for (const info of regionInfos) {
+    const existing = await prisma.regionInfo.findFirst({
+      where: { regionId: region.id, title: info.title },
+    });
+    if (!existing) {
+      await prisma.regionInfo.create({ data: { regionId: region.id, ...info } });
+    }
+  }
+
+  // Frei lizenzierte Fotos (Wikimedia Commons) mit Urheber, Lizenz und
+  // Quelllink – Attribution wird im Guide automatisch gerendert.
+  // WICHTIG vor Launch: Dateinamen, Lizenz und Urheber auf der jeweiligen
+  // Commons-Quellseite prüfen und die Felder license/author konkretisieren
+  // (im Admin unter Orte > Bilder editierbar). Special:FilePath löst stabil
+  // über den Dateinamen auf.
+  const commonsFile = (name: string) =>
+    `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=1280`;
+  const commonsPage = (name: string) =>
+    `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(name)}`;
+
+  const seedImages: Array<{ placeName: string; file: string }> = [
+    { placeName: "Varenna", file: "Varenna dal lago.jpg" },
+    { placeName: "Bellagio", file: "Bellagio 2020.jpg" },
+    { placeName: "Villa del Balbianello", file: "Villa del Balbianello.jpg" },
+    { placeName: "Villa Carlotta", file: "VillaCarlotta.JPG" },
+  ];
+  for (const img of seedImages) {
+    const place = await prisma.place.findFirst({
+      where: { regionId: region.id, name: img.placeName },
+    });
+    if (!place) continue;
+    const fileUrl = commonsFile(img.file);
+    const existing = await prisma.image.findFirst({
+      where: { placeId: place.id, fileUrl },
+    });
+    if (!existing) {
+      await prisma.image.create({
+        data: {
+          placeId: place.id,
+          fileUrl,
+          license: "Wikimedia Commons – Lizenz vor Launch prüfen",
+          author: "siehe Quellseite",
+          sourceUrl: commonsPage(img.file),
+        },
+      });
+    }
+  }
+
+  console.log(
+    "Seed abgeschlossen: Region Comer See mit Beispiel-Orten, Wanderungen, 'Gut zu wissen'-Kapiteln und lizenzierten Fotos."
+  );
 }
 
 main()

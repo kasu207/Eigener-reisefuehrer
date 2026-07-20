@@ -4,6 +4,9 @@ import { guideContentSchema, type Chapter } from "@/lib/guide-content";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import type { Selection } from "@/lib/selection";
 import GuideMap, { type MapMarker } from "@/components/GuideMap";
+import AdjustPanel from "@/components/AdjustPanel";
+import ShareBox from "@/components/ShareBox";
+import { ChapterIcon } from "@/components/illustrations";
 import type { Place, Hike, Image as DbImage } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -65,16 +68,25 @@ export default async function GuidePage({
 }) {
   const { token } = await params;
 
-  const guide = await prisma.guide.findUnique({
-    where: { publicToken: token },
+  // Zugriff über Besitzer-Link (publicToken, mit Anpassungs-Rechten) oder
+  // geteilten Lese-Link (shareToken, read-only)
+  const guide = await prisma.guide.findFirst({
+    where: { OR: [{ publicToken: token }, { shareToken: token }] },
     include: { guideRequest: true },
   });
   if (!guide) notFound();
+  const isOwner = guide.publicToken === token;
+  const regenerating =
+    guide.guideRequest.status === "pending" || guide.guideRequest.status === "generating";
 
   const content = guideContentSchema.parse(guide.content);
   const selection = guide.selection as unknown as Selection;
   const q = questionnaireSchema.parse(guide.guideRequest.questionnaire);
-  const region = await prisma.region.findUnique({ where: { slug: q.regionSlug } });
+  const region = await prisma.region.findUnique({
+    where: { slug: q.regionSlug },
+    include: { infos: { orderBy: { sortOrder: "asc" } } },
+  });
+  const regionInfos = region?.infos ?? [];
 
   const allPlaceIds = [...selection.placeIds, ...selection.restaurantIds, ...selection.practicalIds];
   const places = await prisma.place.findMany({
@@ -175,6 +187,16 @@ export default async function GuidePage({
         </div>
       </header>
 
+      {/* Besitzer-Funktionen: Anpassen & Teilen */}
+      {isOwner && (
+        <div className="no-print mb-10 space-y-4">
+          <AdjustPanel token={token} regenerating={regenerating} />
+          <ShareBox
+            shareUrl={`${process.env.APP_URL ?? "http://localhost:3000"}/guide/${guide.shareToken}`}
+          />
+        </div>
+      )}
+
       {/* Persönliche Einleitung */}
       <section className="mx-auto max-w-2xl">
         <p className="text-lg leading-relaxed whitespace-pre-line">{content.intro.text}</p>
@@ -192,12 +214,17 @@ export default async function GuidePage({
           {content.daySuggestions.length > 0 && (
             <li>{content.chapters.length + 1}. Eure Tage am See</li>
           )}
+          {regionInfos.length > 0 && <li>Gut zu wissen</li>}
+          <li>Register</li>
         </ol>
       </nav>
 
       {/* Übersichtskarte */}
       <section className="no-print mt-12">
-        <h2 className="mb-4 font-serif text-2xl">Eure Orte auf der Karte</h2>
+        <div className="mb-4 flex items-center gap-3">
+          <ChapterIcon kind="map" />
+          <h2 className="font-serif text-2xl">Eure Orte auf der Karte</h2>
+        </div>
         <GuideMap
           center={{ lat: region?.centerLat ?? 46.0, lng: region?.centerLng ?? 9.26 }}
           markers={markers}
@@ -210,7 +237,10 @@ export default async function GuidePage({
       {/* Kapitel */}
       {content.chapters.map((chapter) => (
         <section key={chapter.key} className="print-break-before mt-16">
-          <h2 className="font-serif text-3xl">{chapter.title}</h2>
+          <div className="flex items-center gap-3">
+            <ChapterIcon kind={chapter.kind === "practical" ? "practical" : chapter.kind} />
+            <h2 className="font-serif text-3xl">{chapter.title}</h2>
+          </div>
           <p className="mt-3 leading-relaxed text-neutral-700">{chapter.introText}</p>
           <div className="mt-6 space-y-8">
             {chapter.entries.map((entry) => renderChapterEntry(chapter, entry))}
@@ -221,7 +251,10 @@ export default async function GuidePage({
       {/* Tagesvorschläge */}
       {content.daySuggestions.length > 0 && (
         <section className="print-break-before mt-16">
-          <h2 className="font-serif text-3xl">Eure Tage am See</h2>
+          <div className="flex items-center gap-3">
+            <ChapterIcon kind="days" />
+            <h2 className="font-serif text-3xl">Eure Tage am See</h2>
+          </div>
           <div className="mt-6 space-y-6">
             {content.daySuggestions.map((d) => (
               <article key={d.day} className="print-avoid-break border-t border-neutral-200 pt-4">
@@ -234,6 +267,51 @@ export default async function GuidePage({
           </div>
         </section>
       )}
+
+      {/* Gut zu wissen: Standard-Infos zur Region (Währung, Geschichte,
+          Sprachführer, Trinkwasser ...), redaktionell gepflegt */}
+      {regionInfos.length > 0 && (
+        <section className="print-break-before mt-16">
+          <div className="flex items-center gap-3">
+            <ChapterIcon kind="info" />
+            <h2 className="font-serif text-3xl">Gut zu wissen</h2>
+          </div>
+          <div className="mt-6 space-y-6">
+            {regionInfos.map((info) => (
+              <article key={info.id} className="print-avoid-break border-t border-neutral-200 pt-4">
+                <h3 className="font-serif text-xl">{info.title}</h3>
+                <p className="mt-2 leading-relaxed whitespace-pre-line">{info.content}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Register: alphabetisches Verzeichnis aller Orte wie im Buch */}
+      <section className="print-break-before mt-16">
+        <div className="flex items-center gap-3">
+          <ChapterIcon kind="register" />
+          <h2 className="font-serif text-3xl">Register</h2>
+        </div>
+        <ul className="mt-6 columns-2 gap-8 text-sm leading-7">
+          {content.chapters
+            .flatMap((chapter, i) =>
+              chapter.entries.map((entry) => ({
+                name:
+                  placeById.get(entry.id)?.name ?? hikeById.get(entry.id)?.name ?? "",
+                chapter: i + 1,
+              }))
+            )
+            .filter((e) => e.name)
+            .sort((a, b) => a.name.localeCompare(b.name, "de"))
+            .map((e) => (
+              <li key={`${e.name}-${e.chapter}`} className="flex justify-between gap-2">
+                <span>{e.name}</span>
+                <span className="text-neutral-400">Kap. {e.chapter}</span>
+              </li>
+            ))}
+        </ul>
+      </section>
 
       <p className="mt-16 border-t border-neutral-200 pt-6 text-xs text-neutral-500">
         Alle Angaben wurden redaktionell geprüft, können sich aber ändern – bitte

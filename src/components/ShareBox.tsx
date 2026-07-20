@@ -1,0 +1,41 @@
+"use client";
+
+import { useState } from "react";
+
+/** Lese-Link zum Teilen mit Mitreisenden (ohne Anpassungs-Rechte). */
+export default function ShareBox({ shareUrl }: { shareUrl: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: Nutzer kopiert manuell aus dem Feld
+    }
+  }
+
+  return (
+    <div className="no-print rounded-2xl border border-neutral-200 bg-white p-5">
+      <h2 className="font-serif text-xl">Mit Mitreisenden teilen</h2>
+      <p className="mt-1 text-sm text-neutral-600">
+        Dieser Lese-Link zeigt den Guide, erlaubt aber keine Anpassungen:
+      </p>
+      <div className="mt-3 flex gap-2">
+        <input
+          readOnly
+          value={shareUrl}
+          onFocus={(e) => e.target.select()}
+          className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm"
+        />
+        <button
+          onClick={copy}
+          className="shrink-0 rounded-lg bg-(--color-ink) px-4 py-2 text-sm text-white transition hover:bg-(--color-accent)"
+        >
+          {copied ? "Kopiert!" : "Kopieren"}
+        </button>
+      </div>
+    </div>
+  );
+}
