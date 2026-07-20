@@ -40,7 +40,11 @@ services:
     # Schema anwenden, dann starten
     command: sh -c "npx prisma db push --skip-generate && npm start"
     ports:
-      - "80:3000"
+      # APP_BIND in der .env steuert Host-Port/Interface, z. B.:
+      #   APP_BIND=80                -> öffentlich auf Port 80 (Standard)
+      #   APP_BIND=8082              -> öffentlich auf Port 8082
+      #   APP_BIND=127.0.0.1:8082    -> nur lokal, für Reverse-Proxy (Caddy/nginx)
+      - "${APP_BIND:-80}:3000"
 
   worker:
     build: .
