@@ -3,6 +3,9 @@
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
+# openssl, damit prisma generate die richtige Engine-Plattform erkennt
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
 # Prisma braucht das Schema schon beim postinstall (prisma generate)
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
