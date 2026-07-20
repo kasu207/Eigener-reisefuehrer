@@ -1,0 +1,180 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+// Der SDK-Helper erwartet Zod-v4-Schemata (zod >= 3.25 liefert das Subpath-Export mit)
+import * as z from "zod/v4";
+import type { Questionnaire } from "../questionnaire";
+import { INTEREST_LABELS, tripDays } from "../questionnaire";
+import type { GuideContent, Chapter } from "../guide-content";
+
+/**
+ * KI-Textgenerierung (Anforderung 4.3).
+ * - Modell konfigurierbar per Umgebungsvariable ANTHROPIC_MODEL
+ * - Generierung kapitelweise, Ausgabe als strukturiertes JSON (Zod-validiert)
+ * - Harte Regel im Systemprompt: keine erfundenen Fakten
+ * - Retries übernimmt das SDK (Standard: 2, hier 3)
+ */
+
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+
+const client = new Anthropic({ maxRetries: 3 });
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+const SYSTEM_PROMPT = `Du bist Redakteur:in eines hochwertigen, persönlichen Reiseführers auf Deutsch.
+
+HARTE REGELN:
+- Fakten (Öffnungszeiten, Preise, Distanzen, Höhenmeter, Adressen, Fahrzeiten) dürfen AUSSCHLIESSLICH aus den mitgelieferten Datenbank-Daten übernommen werden.
+- Fehlende Fakten lässt du weg. Du erfindest NIEMALS Zahlen, Namen oder Details.
+- Fakten-Boxen werden separat aus der Datenbank gerendert – wiederhole keine Adressen oder Zahlenkolonnen im Fließtext.
+- Sprich die Reisenden direkt mit "ihr" an und beziehe dich auf ihre Angaben aus dem Fragebogen ("Weil ihr gern ... seid").
+- Stil: ruhig, warmherzig, redaktionell hochwertig wie ein modernes Reisemagazin. Keine Superlative-Kaskaden, keine Emojis.`;
+
+/** Fragebogen-Zusammenfassung als Kontext für jedes Kapitel. */
+export function summarizeQuestionnaire(q: Questionnaire): string {
+  const interests = q.interests
+    .map((i) => `${INTEREST_LABELS[i.key]} (${i.weight})`)
+    .join(", ");
+  const children =
+    q.children.length > 0
+      ? `${q.children.length} Kind(er), Altersgruppen: ${q.children.map((c) => c.ageGroup).join(", ")}`
+      : "keine Kinder";
+  return [
+    `Reisende: ${q.firstNames} – ${q.adults} Erwachsene, ${children}`,
+    `Zeitraum: ${q.dateFrom} bis ${q.dateTo} (${tripDays(q)} Tage), Tempo: ${q.pace}`,
+    `Unterkunft: ${q.accommodation.label}`,
+    `Mobilität vor Ort: ${q.mobility === "car" ? "Auto" : q.mobility === "public" ? "ÖPNV/Fähre" : "zu Fuß/Rad"}`,
+    `Interessen: ${interests}`,
+    `Fitness: ${q.fitnessLevel}, max. Wanderdauer ${q.maxHikeDurationMin} min, max. ${q.maxElevationGainM} Höhenmeter`,
+    `Kulinarik: Preisniveau bis ${q.priceLevel}/4, Ernährung: ${q.diets.join(", ") || "keine Einschränkungen"}, Vorlieben: ${q.foodPreferences.join(", ") || "offen"}`,
+    q.occasion ? `Besonderer Anlass: ${q.occasion}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Ein DB-Eintrag mit geprüften Fakten und Quellen-Exzerpten als KI-Kontext. */
+export interface EntryContext {
+  id: string;
+  name: string;
+  facts: string; // geprüfte Fakten aus der DB, formatiert
+  sourceExcerpts: string[]; // Quellen-Notizen der Redaktion
+}
+
+const chapterOutputSchema = z.object({
+  title: z.string(),
+  introText: z.string(),
+  entries: z.array(
+    z.object({
+      id: z.string(),
+      personalText: z.string(),
+      reason: z.string(),
+    })
+  ),
+});
+
+const introOutputSchema = z.object({
+  introTitle: z.string(),
+  introText: z.string(),
+  daySuggestions: z.array(
+    z.object({ day: z.number().int(), title: z.string(), text: z.string() })
+  ),
+});
+
+async function callClaude<S extends z.ZodType>(
+  schema: S,
+  schemaName: string,
+  userPrompt: string,
+  usage: TokenUsage
+): Promise<z.infer<S>> {
+  const response = await client.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userPrompt }],
+    output_config: { format: zodOutputFormat(schema) },
+  });
+  usage.inputTokens += response.usage.input_tokens;
+  usage.outputTokens += response.usage.output_tokens;
+  if (!response.parsed_output) {
+    throw new Error(`Kapitel-Generierung lieferte kein valides JSON (${schemaName})`);
+  }
+  return response.parsed_output;
+}
+
+export interface ChapterJob {
+  key: string;
+  kind: Chapter["kind"];
+  workingTitle: string;
+  instruction: string;
+  entries: EntryContext[];
+}
+
+function formatEntries(entries: EntryContext[]): string {
+  return entries
+    .map((e) => {
+      const sources =
+        e.sourceExcerpts.length > 0
+          ? `\n  Quellen-Notizen: ${e.sourceExcerpts.join(" | ")}`
+          : "";
+      return `- id: ${e.id}\n  Name: ${e.name}\n  Geprüfte Fakten: ${e.facts}${sources}`;
+    })
+    .join("\n");
+}
+
+export async function generateChapter(
+  q: Questionnaire,
+  job: ChapterJob,
+  usage: TokenUsage
+): Promise<Chapter> {
+  const prompt = `FRAGEBOGEN-ZUSAMMENFASSUNG:
+${summarizeQuestionnaire(q)}
+
+KAPITEL: ${job.workingTitle}
+AUFGABE: ${job.instruction}
+
+Schreibe für jeden der folgenden Einträge einen personalisierten Empfehlungstext (2-4 Sätze, Feld "personalText") und eine individuelle Begründung, warum dieser Ort zu genau diesen Reisenden passt (1 Satz, Feld "reason", beginnend mit "Weil ihr ..."). Verwende exakt die angegebenen ids. Dazu einen kurzen Kapitel-Einleitungstext ("introText", 2-3 Sätze) und einen passenden Kapiteltitel ("title").
+
+EINTRÄGE (einzige zulässige Faktenquelle):
+${formatEntries(job.entries)}`;
+
+  const out = await callClaude(chapterOutputSchema, `chapter_${job.kind}`, prompt, usage);
+
+  // Nur Einträge übernehmen, deren id wir tatsächlich geliefert haben
+  const validIds = new Set(job.entries.map((e) => e.id));
+  return {
+    key: job.key,
+    kind: job.kind,
+    title: out.title,
+    introText: out.introText,
+    entries: out.entries.filter((e) => validIds.has(e.id)),
+  };
+}
+
+export async function generateIntro(
+  q: Questionnaire,
+  chapterSummaries: string[],
+  usage: TokenUsage
+): Promise<Pick<GuideContent, "intro" | "daySuggestions">> {
+  const prompt = `FRAGEBOGEN-ZUSAMMENFASSUNG:
+${summarizeQuestionnaire(q)}
+
+Der Reiseführer enthält folgende Kapitel:
+${chapterSummaries.map((s) => `- ${s}`).join("\n")}
+
+AUFGABE:
+1. Schreibe eine persönliche Einleitung für den Reiseführer (Feld "introText", 4-6 Sätze), die die Reisenden mit Namen anspricht und auf Zeitraum, Anlass und Interessen eingeht. Dazu einen Titel ("introTitle").
+2. Erstelle für jeden Reisetag (${tripDays(q)} Tage) einen kurzen Tagesvorschlag ("daySuggestions": day, title, text mit 2-3 Sätzen). Kombiniere dafür nur Orte/Aktivitäten, die in den Kapiteln vorkommen, und berücksichtige das Reisetempo "${q.pace}". Nenne keine konkreten Uhrzeiten oder Preise.`;
+
+  const out = await callClaude(introOutputSchema, "guide_intro", prompt, usage);
+  return {
+    intro: { title: out.introTitle, text: out.introText },
+    daySuggestions: out.daySuggestions,
+  };
+}
+
+export function modelUsed(): string {
+  return MODEL;
+}

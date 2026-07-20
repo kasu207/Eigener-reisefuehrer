@@ -1,0 +1,201 @@
+import { describe, it, expect } from "vitest";
+import {
+  selectContent,
+  hikePassesHardFilters,
+  restaurantPassesHardFilters,
+  placePassesHardFilters,
+  computeTargets,
+  type SelectablePlace,
+  type SelectableHike,
+} from "../src/lib/selection";
+import { questionnaireSchema, type Questionnaire } from "../src/lib/questionnaire";
+import { validateContentAgainstSelection, type GuideContent } from "../src/lib/guide-content";
+
+function makeQuestionnaire(overrides: Partial<Questionnaire> = {}): Questionnaire {
+  return questionnaireSchema.parse({
+    regionSlug: "comer-see",
+    dateFrom: "2026-08-01",
+    dateTo: "2026-08-07",
+    accommodation: { label: "Varenna", lat: 46.0106, lng: 9.2833 },
+    mobility: "car",
+    adults: 2,
+    children: [],
+    occasion: "",
+    interests: [
+      { key: "wandern", weight: "wichtig" },
+      { key: "kulinarik", weight: "interessant" },
+    ],
+    fitnessLevel: "mittel",
+    maxHikeDurationMin: 240,
+    maxElevationGainM: 800,
+    pace: "ausgewogen",
+    priceLevel: 3,
+    diets: [],
+    foodPreferences: ["regional_traditionell"],
+    firstNames: "Anna & Jonas",
+    email: "test@example.com",
+    gdprConsent: true,
+    ...overrides,
+  });
+}
+
+function makePlace(overrides: Partial<SelectablePlace> = {}): SelectablePlace {
+  return {
+    id: Math.random().toString(36).slice(2),
+    type: "sight",
+    name: "Testort",
+    lat: 46.0,
+    lng: 9.26,
+    tags: [],
+    priceLevel: null,
+    childFriendly: true,
+    access: "public",
+    dietaryOptions: [],
+    qualityScore: 3,
+    ...overrides,
+  };
+}
+
+function makeHike(overrides: Partial<SelectableHike> = {}): SelectableHike {
+  return {
+    id: Math.random().toString(36).slice(2),
+    name: "Testwanderung",
+    startLat: 46.0,
+    startLng: 9.26,
+    distanceKm: 8,
+    durationMin: 180,
+    elevationGainM: 400,
+    difficulty: "medium",
+    childFriendly: true,
+    tags: [],
+    ...overrides,
+  };
+}
+
+describe("harte Filter", () => {
+  it("filtert Wanderungen über der maximalen Dauer", () => {
+    const q = makeQuestionnaire({ maxHikeDurationMin: 120 });
+    expect(hikePassesHardFilters(makeHike({ durationMin: 300 }), q)).toBe(false);
+    expect(hikePassesHardFilters(makeHike({ durationMin: 90 }), q)).toBe(true);
+  });
+
+  it("filtert Wanderungen über der Höhenmeter-Toleranz", () => {
+    const q = makeQuestionnaire({ maxElevationGainM: 500 });
+    expect(hikePassesHardFilters(makeHike({ elevationGainM: 900 }), q)).toBe(false);
+  });
+
+  it("filtert schwere Wanderungen bei niedrigem Fitness-Level", () => {
+    const q = makeQuestionnaire({ fitnessLevel: "niedrig" });
+    expect(hikePassesHardFilters(makeHike({ difficulty: "hard" }), q)).toBe(false);
+    expect(hikePassesHardFilters(makeHike({ difficulty: "easy" }), q)).toBe(true);
+  });
+
+  it("filtert nicht-kindertaugliche Einträge bei kleinen Kindern", () => {
+    const q = makeQuestionnaire({ children: [{ ageGroup: "0-3" }] });
+    expect(placePassesHardFilters(makePlace({ childFriendly: false }), q)).toBe(false);
+    expect(hikePassesHardFilters(makeHike({ childFriendly: false }), q)).toBe(false);
+  });
+
+  it("filtert Auto-only-Ziele ohne Auto", () => {
+    const q = makeQuestionnaire({ mobility: "public" });
+    expect(placePassesHardFilters(makePlace({ access: "car" }), q)).toBe(false);
+    expect(placePassesHardFilters(makePlace({ access: "public" }), q)).toBe(true);
+  });
+
+  it("respektiert Ernährungsweisen bei Restaurants (harte Kriterien)", () => {
+    const q = makeQuestionnaire({ diets: ["vegan"] });
+    expect(
+      restaurantPassesHardFilters(
+        makePlace({ type: "restaurant", dietaryOptions: ["vegetarian"] }),
+        q
+      )
+    ).toBe(false);
+    expect(
+      restaurantPassesHardFilters(
+        makePlace({ type: "restaurant", dietaryOptions: ["vegetarian", "vegan"] }),
+        q
+      )
+    ).toBe(true);
+  });
+
+  it("respektiert das Preisniveau bei Restaurants", () => {
+    const q = makeQuestionnaire({ priceLevel: 2 });
+    expect(restaurantPassesHardFilters(makePlace({ type: "restaurant", priceLevel: 4 }), q)).toBe(false);
+    expect(restaurantPassesHardFilters(makePlace({ type: "restaurant", priceLevel: 2 }), q)).toBe(true);
+  });
+});
+
+describe("Zielmengen (4.2)", () => {
+  it("liegen in den geforderten Spannen", () => {
+    const targets = computeTargets(makeQuestionnaire());
+    expect(targets.places).toBeGreaterThanOrEqual(25);
+    expect(targets.places).toBeLessThanOrEqual(40);
+    expect(targets.hikes).toBeGreaterThanOrEqual(4);
+    expect(targets.hikes).toBeLessThanOrEqual(8);
+    expect(targets.restaurants).toBeGreaterThanOrEqual(8);
+    expect(targets.restaurants).toBeLessThanOrEqual(15);
+  });
+
+  it("skaliert mit dem Reisetempo", () => {
+    const relaxed = computeTargets(makeQuestionnaire({ pace: "entspannt" }));
+    const packed = computeTargets(makeQuestionnaire({ pace: "vollgepackt" }));
+    expect(packed.places).toBeGreaterThanOrEqual(relaxed.places);
+  });
+});
+
+describe("selectContent", () => {
+  it("ist deterministisch und bevorzugt passende Tags", () => {
+    const q = makeQuestionnaire({
+      interests: [{ key: "seen_baden", weight: "wichtig" }],
+    });
+    const beach = makePlace({ id: "beach", type: "beach", tags: ["baden", "lido"], qualityScore: 3 });
+    const boring = makePlace({ id: "boring", type: "sight", tags: [], qualityScore: 3 });
+    const places = [beach, boring];
+
+    const s1 = selectContent(places, [], q);
+    const s2 = selectContent(places, [], q);
+    expect(s1.placeIds).toEqual(s2.placeIds);
+    expect(s1.placeIds[0]).toBe("beach");
+  });
+
+  it("trennt Restaurants, Orte und Praktisches", () => {
+    const q = makeQuestionnaire();
+    const places = [
+      makePlace({ id: "p1", type: "village" }),
+      makePlace({ id: "r1", type: "restaurant", priceLevel: 2 }),
+      makePlace({ id: "x1", type: "practical" }),
+    ];
+    const s = selectContent(places, [makeHike({ id: "h1" })], q);
+    expect(s.placeIds).toContain("p1");
+    expect(s.restaurantIds).toContain("r1");
+    expect(s.practicalIds).toContain("x1");
+    expect(s.placeIds).not.toContain("r1");
+    expect(s.hikeIds).toContain("h1");
+  });
+});
+
+describe("Faktentreue-Prüfung (Anforderung 8)", () => {
+  it("erkennt Einträge ohne DB-Beleg", () => {
+    const q = makeQuestionnaire();
+    const s = selectContent([makePlace({ id: "p1", type: "village" })], [], q);
+    const content: GuideContent = {
+      intro: { title: "t", text: "t" },
+      daySuggestions: [],
+      chapters: [
+        {
+          key: "area-1",
+          kind: "places",
+          title: "Kapitel",
+          introText: "",
+          entries: [
+            { id: "p1", personalText: "ok", reason: "Weil ..." },
+            { id: "erfunden", personalText: "nicht ok", reason: "" },
+          ],
+        },
+      ],
+    };
+    const check = validateContentAgainstSelection(content, s);
+    expect(check.ok).toBe(false);
+    expect(check.unknownIds).toEqual(["erfunden"]);
+  });
+});

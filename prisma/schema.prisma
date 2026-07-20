@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlaceType {
+  village
+  sight
+  viewpoint
+  beach
+  restaurant
+  bar
+  practical
+}
+
+enum Access {
+  car
+  public
+  foot
+}
+
+enum Difficulty {
+  easy
+  medium
+  hard
+}
+
+enum ContentStatus {
+  draft
+  verified
+}
+
+enum RequestStatus {
+  pending
+  generating
+  ready
+  failed
+}
+
+enum SourceType {
+  reddit
+  blog
+  instagram
+  portal
+  own
+}
+
+model Region {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  country     String
+  centerLat   Float   @map("center_lat")
+  centerLng   Float   @map("center_lng")
+  description String  @default("")
+  places      Place[]
+  hikes       Hike[]
+
+  @@map("regions")
+}
+
+model Place {
+  id             String        @id @default(cuid())
+  regionId       String        @map("region_id")
+  region         Region        @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  type           PlaceType
+  name           String
+  lat            Float
+  lng            Float
+  address        String        @default("")
+  tags           String[]
+  priceLevel     Int?          @map("price_level") // 1-4
+  openingNotes   String        @default("") @map("opening_notes")
+  childFriendly  Boolean       @default(true) @map("child_friendly")
+  access         Access        @default(car)
+  dietaryOptions String[]      @map("dietary_options") // vegetarian | vegan | glutenfree
+  editorNotes    String        @default("") @map("editor_notes")
+  qualityScore   Int           @default(3) @map("quality_score") // 1-5
+  status         ContentStatus @default(draft)
+  lastVerifiedAt DateTime?     @map("last_verified_at")
+  images         Image[]
+  sources        Source[]
+
+  @@map("places")
+}
+
+model Hike {
+  id               String        @id @default(cuid())
+  regionId         String        @map("region_id")
+  region           Region        @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  name             String
+  startLat         Float         @map("start_lat")
+  startLng         Float         @map("start_lng")
+  startDescription String        @default("") @map("start_description")
+  distanceKm       Float         @map("distance_km")
+  durationMin      Int           @map("duration_min")
+  elevationGainM   Int           @map("elevation_gain_m")
+  difficulty       Difficulty
+  childFriendly    Boolean       @default(false) @map("child_friendly")
+  gpxFile          String?       @map("gpx_file")
+  descriptionNotes String        @default("") @map("description_notes")
+  tags             String[]
+  status           ContentStatus @default(draft)
+  lastVerifiedAt   DateTime?     @map("last_verified_at")
+  images           Image[]
+  sources          Source[]
+
+  @@map("hikes")
+}
+
+model Image {
+  id        String  @id @default(cuid())
+  placeId   String? @map("place_id")
+  place     Place?  @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  hikeId    String? @map("hike_id")
+  hike      Hike?   @relation(fields: [hikeId], references: [id], onDelete: Cascade)
+  fileUrl   String  @map("file_url")
+  license   String
+  author    String
+  sourceUrl String  @map("source_url")
+
+  @@map("images")
+}
+
+model Source {
+  id         String     @id @default(cuid())
+  placeId    String?    @map("place_id")
+  place      Place?     @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  hikeId     String?    @map("hike_id")
+  hike       Hike?      @relation(fields: [hikeId], references: [id], onDelete: Cascade)
+  url        String
+  sourceType SourceType @map("source_type")
+  excerpt    String     @default("")
+  fetchedAt  DateTime   @default(now()) @map("fetched_at")
+
+  @@map("sources")
+}
+
+model GuideRequest {
+  id            String        @id @default(cuid())
+  email         String
+  questionnaire Json
+  status        RequestStatus @default(pending)
+  error         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  guides        Guide[]
+
+  @@map("guide_requests")
+}
+
+model Guide {
+  id             String       @id @default(cuid())
+  guideRequestId String       @map("guide_request_id")
+  guideRequest   GuideRequest @relation(fields: [guideRequestId], references: [id], onDelete: Cascade)
+  selection      Json
+  content        Json
+  publicToken    String       @unique @map("public_token")
+  pdfUrl         String?      @map("pdf_url")
+  generatedAt    DateTime     @default(now()) @map("generated_at")
+  modelUsed      String       @map("model_used")
+  inputTokens    Int          @default(0) @map("input_tokens")
+  outputTokens   Int          @default(0) @map("output_tokens")
+
+  @@map("guides")
+}
