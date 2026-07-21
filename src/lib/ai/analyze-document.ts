@@ -76,7 +76,10 @@ async function runAnalysis(
 ): Promise<{ chunks: AnalyzedChunk[]; inputTokens: number; outputTokens: number }> {
   const response = await client.messages.parse({
     model: MODEL,
-    max_tokens: 32000,
+    // 16000 statt 32000: hält die Nicht-Streaming-Anfrage unter der
+    // 10-Minuten-Grenze des SDK (sonst "Streaming is required"-Fehler).
+    // Für max. 25 kurze, paraphrasierte Notizen ist das reichlich.
+    max_tokens: 16000,
     system: ANALYSIS_SYSTEM,
     messages: [
       {
@@ -144,7 +147,13 @@ export async function analyzeText(regionName: string, text: string) {
 export async function analyzeUrl(regionName: string, url: string) {
   if (isMock()) return mockAnalysis(url);
   const res = await fetch(url, {
-    headers: { "User-Agent": "Reisefuehrer-Import/1.0" },
+    headers: {
+      // Realistischer Browser-Header: viele Blogs blocken sonst (403/500)
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "de,en;q=0.8",
+    },
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error(`Abruf fehlgeschlagen (${res.status})`);
