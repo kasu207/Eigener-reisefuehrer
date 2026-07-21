@@ -9,7 +9,7 @@ function makeQuestionnaire(overrides: Partial<Questionnaire> = {}): Questionnair
     dateFrom: "2026-08-01",
     dateTo: "2026-08-07",
     accommodation: { label: "Varenna", lat: null, lng: null },
-    mobility: "car",
+    mobility: ["car"],
     adults: 2,
     children: [],
     interests: [

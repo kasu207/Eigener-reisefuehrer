@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import type { PlaceType, Access, Difficulty, ContentStatus, SourceType } from "@prisma/client";
+import type {
+  PlaceType,
+  Access,
+  Difficulty,
+  ContentStatus,
+  SourceType,
+  InfoFormat,
+} from "@prisma/client";
 
 /** Server Actions für das Admin-CRUD (Anforderung 4.5) und die
  * halbautomatische Quellen-Anreicherung (Anforderung 5.3). */
@@ -49,6 +56,7 @@ function placeData(fd: FormData) {
     regionId: str(fd, "regionId"),
     type: str(fd, "type") as PlaceType,
     name: str(fd, "name"),
+    locality: str(fd, "locality"),
     lat: num(fd, "lat"),
     lng: num(fd, "lng"),
     address: str(fd, "address"),
@@ -89,6 +97,8 @@ function hikeData(fd: FormData) {
   return {
     regionId: str(fd, "regionId"),
     name: str(fd, "name"),
+    locality: str(fd, "locality"),
+    externalUrl: str(fd, "externalUrl") || null,
     startLat: num(fd, "startLat"),
     startLng: num(fd, "startLng"),
     startDescription: str(fd, "startDescription"),
@@ -341,6 +351,7 @@ export async function addRegionInfo(fd: FormData) {
       regionId,
       title: str(fd, "title"),
       content: str(fd, "content"),
+      format: str(fd, "format") as InfoFormat,
       sortOrder: num(fd, "sortOrder"),
     },
   });
@@ -353,6 +364,7 @@ export async function updateRegionInfo(fd: FormData) {
     data: {
       title: str(fd, "title"),
       content: str(fd, "content"),
+      format: str(fd, "format") as InfoFormat,
       sortOrder: num(fd, "sortOrder"),
     },
   });

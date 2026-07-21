@@ -17,7 +17,15 @@ enum PlaceType {
   beach
   restaurant
   bar
+  hotel
+  event
   practical
+}
+
+enum InfoFormat {
+  prose
+  table
+  timeline
 }
 
 enum Access {
@@ -140,12 +148,15 @@ model Region {
 /// Werden redaktionell gepflegt und in jedem Guide als Kapitel
 /// "Gut zu wissen" ausgespielt.
 model RegionInfo {
-  id        String @id @default(cuid())
-  regionId  String @map("region_id")
-  region    Region @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  id        String     @id @default(cuid())
+  regionId  String     @map("region_id")
+  region    Region     @relation(fields: [regionId], references: [id], onDelete: Cascade)
   title     String
   content   String
-  sortOrder Int    @default(0) @map("sort_order")
+  /// prose: Fließtext · table: Zeilen "a | b" (Sprachführer) ·
+  /// timeline: Zeilen "Jahr | Ereignis | optionaler Side-Fact" (Geschichte)
+  format    InfoFormat @default(prose)
+  sortOrder Int        @default(0) @map("sort_order")
 
   @@map("region_infos")
 }
@@ -156,6 +167,9 @@ model Place {
   region         Region        @relation(fields: [regionId], references: [id], onDelete: Cascade)
   type           PlaceType
   name           String
+  /// Ort/Stadt, zu der dieser Eintrag gehört (z. B. "Varenna").
+  /// Leer = regionsweit (z. B. übergreifende Verkehrs-Hinweise).
+  locality       String        @default("")
   lat            Float
   lng            Float
   address        String        @default("")
@@ -180,6 +194,7 @@ model Hike {
   regionId         String        @map("region_id")
   region           Region        @relation(fields: [regionId], references: [id], onDelete: Cascade)
   name             String
+  locality         String        @default("")
   startLat         Float         @map("start_lat")
   startLng         Float         @map("start_lng")
   startDescription String        @default("") @map("start_description")
@@ -189,6 +204,9 @@ model Hike {
   difficulty       Difficulty
   childFriendly    Boolean       @default(false) @map("child_friendly")
   gpxFile          String?       @map("gpx_file")
+  /// Link zum Aufrufen der Tour (z. B. Komoot/Outdooractive); wird im
+  /// Guide mit QR-Code abgebildet.
+  externalUrl      String?       @map("external_url")
   descriptionNotes String        @default("") @map("description_notes")
   tags             String[]
   status           ContentStatus @default(draft)

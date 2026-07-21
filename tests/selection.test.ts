@@ -17,7 +17,7 @@ function makeQuestionnaire(overrides: Partial<Questionnaire> = {}): Questionnair
     dateFrom: "2026-08-01",
     dateTo: "2026-08-07",
     accommodation: { label: "Varenna", lat: 46.0106, lng: 9.2833 },
-    mobility: "car",
+    mobility: ["car"],
     adults: 2,
     children: [],
     occasion: "",
@@ -96,10 +96,19 @@ describe("harte Filter", () => {
     expect(hikePassesHardFilters(makeHike({ childFriendly: false }), q)).toBe(false);
   });
 
-  it("filtert Auto-only-Ziele ohne Auto", () => {
-    const q = makeQuestionnaire({ mobility: "public" });
-    expect(placePassesHardFilters(makePlace({ access: "car" }), q)).toBe(false);
-    expect(placePassesHardFilters(makePlace({ access: "public" }), q)).toBe(true);
+  it("schließt Auto-Ziele nur bei reiner Fuß-/Rad-Mobilität aus", () => {
+    // Verkehrsmittel sind bewusst nicht restriktiv (mehrere Optionen möglich).
+    const onlyFoot = makeQuestionnaire({ mobility: ["foot"] });
+    expect(placePassesHardFilters(makePlace({ access: "car" }), onlyFoot)).toBe(false);
+    expect(placePassesHardFilters(makePlace({ access: "public" }), onlyFoot)).toBe(true);
+
+    // ÖPNV allein schließt Auto-Ziele NICHT aus (nur im Text erwähnt).
+    const publicOnly = makeQuestionnaire({ mobility: ["public"] });
+    expect(placePassesHardFilters(makePlace({ access: "car" }), publicOnly)).toBe(true);
+
+    // Mehrere Verkehrsmittel: alles erreichbar.
+    const multi = makeQuestionnaire({ mobility: ["car", "public"] });
+    expect(placePassesHardFilters(makePlace({ access: "car" }), multi)).toBe(true);
   });
 
   it("respektiert Ernährungsweisen bei Restaurants (harte Kriterien)", () => {
@@ -128,12 +137,12 @@ describe("harte Filter", () => {
 describe("Zielmengen (4.2)", () => {
   it("liegen in den geforderten Spannen", () => {
     const targets = computeTargets(makeQuestionnaire());
-    expect(targets.places).toBeGreaterThanOrEqual(25);
-    expect(targets.places).toBeLessThanOrEqual(40);
+    expect(targets.places).toBeGreaterThanOrEqual(30);
+    expect(targets.places).toBeLessThanOrEqual(70);
     expect(targets.hikes).toBeGreaterThanOrEqual(4);
-    expect(targets.hikes).toBeLessThanOrEqual(8);
-    expect(targets.restaurants).toBeGreaterThanOrEqual(8);
-    expect(targets.restaurants).toBeLessThanOrEqual(15);
+    expect(targets.hikes).toBeLessThanOrEqual(12);
+    expect(targets.restaurants).toBeGreaterThanOrEqual(12);
+    expect(targets.restaurants).toBeLessThanOrEqual(35);
   });
 
   it("skaliert mit dem Reisetempo", () => {

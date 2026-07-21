@@ -15,7 +15,7 @@ interface FormState {
   dateFrom: string;
   dateTo: string;
   accommodation: string;
-  mobility: "car" | "public" | "foot";
+  mobility: ("car" | "public" | "foot")[];
   adults: number;
   children: { ageGroup: "0-3" | "4-9" | "10-14" | "15-17" }[];
   occasion: string;
@@ -38,7 +38,7 @@ const initialState: FormState = {
   dateFrom: "",
   dateTo: "",
   accommodation: "",
-  mobility: "car",
+  mobility: ["car", "public"],
   adults: 2,
   children: [],
   occasion: "",
@@ -107,6 +107,7 @@ export default function FragebogenPage() {
         if (!form.dateFrom || !form.dateTo) return "Bitte gebt euren Reisezeitraum an.";
         if (form.dateTo < form.dateFrom) return "Das Enddatum liegt vor dem Startdatum.";
         if (!form.accommodation.trim()) return "Bitte gebt euren Unterkunftsort an.";
+        if (form.mobility.length === 0) return "Bitte wählt mindestens ein Verkehrsmittel.";
         return null;
       case 2:
         if (Object.keys(form.interests).length === 0)
@@ -168,11 +169,12 @@ export default function FragebogenPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? "Etwas ist schiefgelaufen.");
       }
-      router.push("/bestaetigung");
+      // Direkt in den Browser-Guide – dort füllt sich der Inhalt live
+      router.push(data?.guideUrl ?? "/bestaetigung");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Etwas ist schiefgelaufen.");
       setSubmitting(false);
@@ -252,7 +254,7 @@ export default function FragebogenPage() {
                 onChange={(e) => set("accommodation", e.target.value)}
               />
             </Field>
-            <Field label="Wie seid ihr vor Ort unterwegs?">
+            <Field label="Wie seid ihr vor Ort unterwegs? (Mehrfachauswahl)">
               <div className="flex flex-wrap gap-2">
                 {(
                   [
@@ -261,7 +263,11 @@ export default function FragebogenPage() {
                     ["foot", "Zu Fuß / Rad"],
                   ] as const
                 ).map(([value, label]) => (
-                  <Chip key={value} active={form.mobility === value} onClick={() => set("mobility", value)}>
+                  <Chip
+                    key={value}
+                    active={form.mobility.includes(value)}
+                    onClick={() => set("mobility", toggleArray(form.mobility, value))}
+                  >
                     {label}
                   </Chip>
                 ))}

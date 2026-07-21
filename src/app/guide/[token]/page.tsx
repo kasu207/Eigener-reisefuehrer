@@ -2,23 +2,43 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { guideContentSchema, type Chapter } from "@/lib/guide-content";
 import { questionnaireSchema } from "@/lib/questionnaire";
-import type { Selection } from "@/lib/selection";
+import { qrDataUri } from "@/lib/qr";
 import GuideMap, { type MapMarker } from "@/components/GuideMap";
 import AdjustPanel from "@/components/AdjustPanel";
 import ShareBox from "@/components/ShareBox";
+import GuideProgress from "@/components/GuideProgress";
+import EditableText from "@/components/EditableText";
+import RemoveEntryButton from "@/components/RemoveEntryButton";
+import RegionInfoBlock from "@/components/RegionInfoBlock";
 import { ChapterIcon } from "@/components/illustrations";
 import type { Place, Hike, Image as DbImage } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Web-Ansicht des digitalen Reiseführers (Anforderung 4.4).
- * Zugriff nur über den nicht erratbaren Link, kein Login.
- * Fakten-Boxen werden direkt aus der DB gerendert (Faktentreue).
+ * Interaktiver Browser-Reiseführer im Buch-Stil:
+ * - Ort-Kapitel mit festen Unterabschnitten (Sehenswürdigkeiten, Essen &
+ *   Trinken, Ausgehen, Unterkunft, Veranstaltungen, Praktisches)
+ * - Wanderungen mit Link und QR-Code zum Aufrufen
+ * - Front-Matter (Geschichte als Timeline, Sprachführer als Tabelle)
+ * - alles direkt im Browser bearbeitbar (Besitzer), Fakten aus der DB
  */
 
 type PlaceWithImages = Place & { images: DbImage[] };
 type HikeWithImages = Hike & { images: DbImage[] };
+
+/** Feste Ort-Unterabschnitte – immer in gleicher Reihenfolge und Benennung. */
+const SUBSECTIONS: { title: string; types: PlaceWithImages["type"][] }[] = [
+  { title: "Sehenswürdigkeiten & Ausblicke", types: ["village", "sight", "viewpoint"] },
+  { title: "Baden & Seezugang", types: ["beach"] },
+  { title: "Essen & Trinken", types: ["restaurant"] },
+  { title: "Ausgehen & Aperitivo", types: ["bar"] },
+  { title: "Unterkunft", types: ["hotel"] },
+  { title: "Veranstaltungen", types: ["event"] },
+  { title: "Praktisches vor Ort", types: ["practical"] },
+];
+
+const TEXT_PLACEHOLDER = "✍️ Euer persönlicher Text entsteht gerade …";
 
 function FactBox({ rows }: { rows: [string, string][] }) {
   const filled = rows.filter(([, v]) => v);
@@ -53,7 +73,15 @@ function EntryImage({ images }: { images: DbImage[] }) {
 }
 
 function accessLabel(access: string): string {
-  return access === "car" ? "Am besten mit dem Auto" : access === "public" ? "Mit ÖPNV/Fähre erreichbar" : "Zu Fuß/Rad erreichbar";
+  return access === "car"
+    ? "Am besten mit dem Auto"
+    : access === "public"
+      ? "Mit ÖPNV/Fähre erreichbar"
+      : "Zu Fuß/Rad erreichbar";
+}
+
+function priceLabel(level: number | null): string {
+  return level ? "€".repeat(level) : "";
 }
 
 function verifiedNote(date: Date | null): string {
@@ -68,8 +96,6 @@ export default async function GuidePage({
 }) {
   const { token } = await params;
 
-  // Zugriff über Besitzer-Link (publicToken, mit Anpassungs-Rechten) oder
-  // geteilten Lese-Link (shareToken, read-only)
   const guide = await prisma.guide.findFirst({
     where: { OR: [{ publicToken: token }, { shareToken: token }] },
     include: { guideRequest: true },
@@ -80,7 +106,6 @@ export default async function GuidePage({
     guide.guideRequest.status === "pending" || guide.guideRequest.status === "generating";
 
   const content = guideContentSchema.parse(guide.content);
-  const selection = guide.selection as unknown as Selection;
   const q = questionnaireSchema.parse(guide.guideRequest.questionnaire);
   const region = await prisma.region.findUnique({
     where: { slug: q.regionSlug },
@@ -88,75 +113,80 @@ export default async function GuidePage({
   });
   const regionInfos = region?.infos ?? [];
 
-  const allPlaceIds = [...selection.placeIds, ...selection.restaurantIds, ...selection.practicalIds];
+  const allEntryIds = content.chapters.flatMap((c) => c.entries.map((e) => e.id));
   const places = await prisma.place.findMany({
-    where: { id: { in: allPlaceIds } },
+    where: { id: { in: allEntryIds } },
     include: { images: true },
   });
   const hikes = await prisma.hike.findMany({
-    where: { id: { in: selection.hikeIds } },
+    where: { id: { in: allEntryIds } },
     include: { images: true },
   });
   const placeById = new Map<string, PlaceWithImages>(places.map((p) => [p.id, p]));
   const hikeById = new Map<string, HikeWithImages>(hikes.map((h) => [h.id, h]));
 
-  const markers: MapMarker[] = [
-    ...selection.placeIds
-      .map((id) => placeById.get(id))
-      .filter((p): p is PlaceWithImages => Boolean(p))
-      .map((p) => ({ lat: p.lat, lng: p.lng, label: p.name, kind: "place" as const })),
-    ...selection.restaurantIds
-      .map((id) => placeById.get(id))
-      .filter((p): p is PlaceWithImages => Boolean(p))
-      .map((p) => ({ lat: p.lat, lng: p.lng, label: p.name, kind: "restaurant" as const })),
-    ...selection.hikeIds
-      .map((id) => hikeById.get(id))
-      .filter((h): h is HikeWithImages => Boolean(h))
-      .map((h) => ({ lat: h.startLat, lng: h.startLng, label: h.name, kind: "hike" as const })),
-  ];
+  // QR-Codes für Wanderungen mit Link vorab erzeugen (offline)
+  const hikeQr = new Map<string, string>();
+  for (const h of hikes) {
+    if (h.externalUrl) hikeQr.set(h.id, await qrDataUri(h.externalUrl));
+  }
 
-  function renderChapterEntry(chapter: Chapter, entry: Chapter["entries"][number]) {
-    if (chapter.kind === "hikes") {
-      const hike = hikeById.get(entry.id);
-      if (!hike) return null;
-      return (
-        <article key={entry.id} className="print-avoid-break border-t border-neutral-200 pt-6">
-          <h3 className="font-serif text-xl">{hike.name}</h3>
-          <p className="mt-2 leading-relaxed">{entry.personalText}</p>
-          <p className="mt-2 text-sm italic text-(--color-accent)">{entry.reason}</p>
-          <FactBox
-            rows={[
-              ["Distanz", `${hike.distanceKm} km`],
-              ["Dauer", `ca. ${Math.round(hike.durationMin / 60 * 10) / 10} Std.`],
-              ["Höhenmeter", `${hike.elevationGainM} m`],
-              ["Schwierigkeit", hike.difficulty === "easy" ? "leicht" : hike.difficulty === "medium" ? "mittel" : "anspruchsvoll"],
-              ["Startpunkt", hike.startDescription],
-              ["Hinweis", verifiedNote(hike.lastVerifiedAt)],
-            ]}
-          />
-          {hike.gpxFile && (
-            <p className="no-print mt-2 text-sm">
-              <a href={hike.gpxFile} className="text-(--color-accent) underline">
-                GPX-Track herunterladen
-              </a>
-            </p>
-          )}
-          <EntryImage images={hike.images} />
-        </article>
-      );
-    }
+  const markers: MapMarker[] = content.chapters.flatMap((chapter) =>
+    chapter.entries.flatMap((entry): MapMarker[] => {
+      const h = hikeById.get(entry.id);
+      if (h) return [{ lat: h.startLat, lng: h.startLng, label: h.name, kind: "hike" }];
+      const p = placeById.get(entry.id);
+      if (!p || p.type === "practical") return [];
+      const kind = p.type === "restaurant" || p.type === "bar" ? "restaurant" : "place";
+      return [{ lat: p.lat, lng: p.lng, label: p.name, kind }];
+    })
+  );
 
+  // ---- Render-Helfer -------------------------------------------------------
+
+  function EntryHeader({ id, name }: { id: string; name: string }) {
+    return (
+      <div className="flex items-baseline justify-between gap-3">
+        <h4 className="font-serif text-lg">{name}</h4>
+        {isOwner && <RemoveEntryButton token={token} entryId={id} name={name} />}
+      </div>
+    );
+  }
+
+  function EntryTexts({ entry }: { entry: Chapter["entries"][number] }) {
+    return (
+      <>
+        <EditableText
+          token={token}
+          editable={isOwner}
+          target={{ kind: "entry", entryId: entry.id, field: "personalText" }}
+          value={entry.personalText}
+          placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken, um einen Text zu schreiben …"}
+          className="mt-1 leading-relaxed"
+        />
+        <EditableText
+          token={token}
+          editable={isOwner}
+          target={{ kind: "entry", entryId: entry.id, field: "reason" }}
+          value={entry.reason}
+          placeholder={isOwner && !regenerating ? "Eure Begründung (optional) …" : ""}
+          className="mt-2 text-sm italic text-(--color-accent)"
+        />
+      </>
+    );
+  }
+
+  function renderPlaceEntry(entry: Chapter["entries"][number]) {
     const place = placeById.get(entry.id);
     if (!place) return null;
     return (
-      <article key={entry.id} className="print-avoid-break border-t border-neutral-200 pt-6">
-        <h3 className="font-serif text-xl">{place.name}</h3>
-        <p className="mt-2 leading-relaxed">{entry.personalText}</p>
-        <p className="mt-2 text-sm italic text-(--color-accent)">{entry.reason}</p>
+      <article key={entry.id} className="print-avoid-break border-t border-neutral-100 pt-4">
+        <EntryHeader id={entry.id} name={place.name} />
+        <EntryTexts entry={entry} />
         <FactBox
           rows={[
             ["Adresse", place.address],
-            ["Preisniveau", place.priceLevel ? "€".repeat(place.priceLevel) : ""],
+            ["Preisniveau", priceLabel(place.priceLevel)],
             ["Öffnungszeiten", place.openingNotes],
             ["Erreichbarkeit", accessLabel(place.access)],
             ["Hinweis", verifiedNote(place.lastVerifiedAt)],
@@ -167,15 +197,170 @@ export default async function GuidePage({
     );
   }
 
+  function renderHikeEntry(entry: Chapter["entries"][number]) {
+    const hike = hikeById.get(entry.id);
+    if (!hike) return null;
+    const qr = hikeQr.get(hike.id);
+    return (
+      <article key={entry.id} className="print-avoid-break border-t border-neutral-200 pt-6">
+        <EntryHeader id={entry.id} name={hike.name} />
+        <EntryTexts entry={entry} />
+        <FactBox
+          rows={[
+            ["Distanz", `${hike.distanceKm} km`],
+            ["Dauer", `ca. ${Math.round((hike.durationMin / 60) * 10) / 10} Std.`],
+            ["Höhenmeter", `${hike.elevationGainM} m`],
+            [
+              "Schwierigkeit",
+              hike.difficulty === "easy" ? "leicht" : hike.difficulty === "medium" ? "mittel" : "anspruchsvoll",
+            ],
+            ["Startpunkt", hike.startDescription],
+            ["Hinweis", verifiedNote(hike.lastVerifiedAt)],
+          ]}
+        />
+        {hike.externalUrl && (
+          <div className="print-avoid-break mt-3 flex items-center gap-4 rounded-xl border border-neutral-200 p-3">
+            {qr && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qr} alt="QR-Code zur Tour" className="h-24 w-24 shrink-0" />
+            )}
+            <div className="text-sm">
+              <p className="font-medium">Tour aufrufen</p>
+              <p className="mt-1 text-neutral-600">
+                QR-Code scannen oder öffnen:
+                <br />
+                <a href={hike.externalUrl} className="break-all text-(--color-accent) underline">
+                  {hike.externalUrl}
+                </a>
+              </p>
+              {hike.gpxFile && (
+                <a href={hike.gpxFile} className="mt-1 inline-block text-(--color-accent) underline">
+                  GPX-Track herunterladen
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+        {!hike.externalUrl && hike.gpxFile && (
+          <p className="no-print mt-2 text-sm">
+            <a href={hike.gpxFile} className="text-(--color-accent) underline">
+              GPX-Track herunterladen
+            </a>
+          </p>
+        )}
+        <EntryImage images={hike.images} />
+      </article>
+    );
+  }
+
+  function renderTownChapter(chapter: Chapter) {
+    // Einträge nach festen Unterabschnitten gruppieren (immer gleiche Struktur)
+    return (
+      <section key={chapter.key} className="print-break-before mt-16">
+        <div className="flex items-center gap-3">
+          <ChapterIcon kind="places" />
+          <EditableText
+            token={token}
+            editable={isOwner}
+            target={{ kind: "chapter", chapterKey: chapter.key, field: "title" }}
+            value={chapter.title}
+            multiline={false}
+            as="h2"
+            className="font-serif text-3xl"
+          />
+        </div>
+        <EditableText
+          token={token}
+          editable={isOwner}
+          target={{ kind: "chapter", chapterKey: chapter.key, field: "introText" }}
+          value={chapter.introText}
+          placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken für ein Kurzporträt des Ortes …"}
+          className="mt-3 leading-relaxed text-neutral-700"
+        />
+        {SUBSECTIONS.map((sub) => {
+          const entries = chapter.entries.filter((e) => {
+            const p = placeById.get(e.id);
+            return p && sub.types.includes(p.type);
+          });
+          if (entries.length === 0) return null;
+          return (
+            <div key={sub.title} className="mt-8">
+              <h3 className="font-serif text-xl text-(--color-accent)">{sub.title}</h3>
+              <div className="mt-3 space-y-5">{entries.map(renderPlaceEntry)}</div>
+            </div>
+          );
+        })}
+      </section>
+    );
+  }
+
+  function renderListChapter(chapter: Chapter, icon: "hikes" | "practical") {
+    const isHikes = chapter.kind === "hikes";
+    return (
+      <section key={chapter.key} className="print-break-before mt-16">
+        <div className="flex items-center gap-3">
+          <ChapterIcon kind={icon} />
+          <EditableText
+            token={token}
+            editable={isOwner}
+            target={{ kind: "chapter", chapterKey: chapter.key, field: "title" }}
+            value={chapter.title}
+            multiline={false}
+            as="h2"
+            className="font-serif text-3xl"
+          />
+        </div>
+        <EditableText
+          token={token}
+          editable={isOwner}
+          target={{ kind: "chapter", chapterKey: chapter.key, field: "introText" }}
+          value={chapter.introText}
+          placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken für eine Kapitel-Einleitung …"}
+          className="mt-3 leading-relaxed text-neutral-700"
+        />
+        <div className="mt-6 space-y-8">
+          {chapter.entries.map((e) => (isHikes ? renderHikeEntry(e) : renderPlaceEntry(e)))}
+        </div>
+      </section>
+    );
+  }
+
+  const townChapters = content.chapters.filter((c) => c.kind === "town" || c.kind === "places");
+  const hikeChapter = content.chapters.find((c) => c.kind === "hikes");
+  const practicalChapter = content.chapters.find(
+    (c) => c.kind === "practical" || c.kind === "restaurants"
+  );
+
+  // Register: alle Einträge alphabetisch
+  const registerItems = content.chapters
+    .flatMap((chapter, i) =>
+      chapter.entries.map((entry) => ({
+        name: placeById.get(entry.id)?.name ?? hikeById.get(entry.id)?.name ?? "",
+        chapter: i + 1,
+      }))
+    )
+    .filter((e) => e.name)
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
+    <main className="mx-auto max-w-3xl px-6 py-6">
+      <GuideProgress token={token} active={regenerating} />
+
       {/* Cover */}
-      <header className="py-16 text-center">
+      <header className="py-12 text-center">
         <p className="text-sm uppercase tracking-widest text-(--color-accent)">
           {region?.name ?? "Comer See"} · {new Date(q.dateFrom).toLocaleDateString("de-DE")} –{" "}
           {new Date(q.dateTo).toLocaleDateString("de-DE")}
         </p>
-        <h1 className="mt-4 font-serif text-5xl leading-tight">{content.intro.title}</h1>
+        <EditableText
+          token={token}
+          editable={isOwner}
+          target={{ kind: "intro", field: "title" }}
+          value={content.intro.title}
+          multiline={false}
+          as="h1"
+          className="mt-4 font-serif text-5xl leading-tight"
+        />
         <p className="mt-4 text-xl text-neutral-600">für {q.firstNames}</p>
         <div className="no-print mt-8">
           <a
@@ -187,37 +372,62 @@ export default async function GuidePage({
         </div>
       </header>
 
-      {/* Besitzer-Funktionen: Anpassen & Teilen */}
+      {/* Besitzer-Funktionen */}
       {isOwner && (
         <div className="no-print mb-10 space-y-4">
           <AdjustPanel token={token} regenerating={regenerating} />
           <ShareBox
             shareUrl={`${process.env.APP_URL ?? "http://localhost:3000"}/guide/${guide.shareToken}`}
           />
+          <p className="rounded-xl bg-(--color-accent-soft)/30 px-4 py-2 text-xs text-neutral-600">
+            Tipp: Klickt auf einen beliebigen Text, um ihn direkt zu bearbeiten.
+            Einträge lassen sich über „Entfernen" aussortieren – beides bleibt
+            auch bei einer Neu-Generierung erhalten.
+          </p>
         </div>
       )}
 
-      {/* Persönliche Einleitung */}
+      {/* Einleitung */}
       <section className="mx-auto max-w-2xl">
-        <p className="text-lg leading-relaxed whitespace-pre-line">{content.intro.text}</p>
+        <EditableText
+          token={token}
+          editable={isOwner}
+          target={{ kind: "intro", field: "text" }}
+          value={content.intro.text}
+          placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken, um eure Einleitung zu schreiben …"}
+          className="text-lg leading-relaxed"
+        />
       </section>
 
-      {/* Inhaltsverzeichnis (v. a. für das PDF) */}
+      {/* Inhaltsverzeichnis */}
       <nav className="print-break-before mt-12 rounded-2xl border border-neutral-200 bg-white p-6">
         <h2 className="font-serif text-2xl">Inhalt</h2>
         <ol className="mt-4 space-y-1 text-neutral-700">
-          {content.chapters.map((c, i) => (
-            <li key={c.key}>
-              {i + 1}. {c.title}
-            </li>
+          {regionInfos.length > 0 && <li>Die Region verstehen</li>}
+          {townChapters.map((c) => (
+            <li key={c.key}>{c.title}</li>
           ))}
-          {content.daySuggestions.length > 0 && (
-            <li>{content.chapters.length + 1}. Eure Tage am See</li>
-          )}
-          {regionInfos.length > 0 && <li>Gut zu wissen</li>}
+          {hikeChapter && <li>{hikeChapter.title}</li>}
+          {practicalChapter && <li>{practicalChapter.title}</li>}
+          {content.daySuggestions.length > 0 && <li>Eure Tage am See</li>}
           <li>Register</li>
         </ol>
       </nav>
+
+      {/* Front-Matter: Die Region verstehen (Geschichte, Sprachführer, ...) */}
+      {regionInfos.length > 0 && (
+        <section className="print-break-before mt-16">
+          <div className="flex items-center gap-3">
+            <ChapterIcon kind="info" />
+            <h2 className="font-serif text-3xl">Die Region verstehen</h2>
+          </div>
+          <div className="mt-6 space-y-8">
+            {regionInfos.map((info) => (
+              <RegionInfoBlock key={info.id} info={info} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Übersichtskarte */}
       <section className="no-print mt-12">
@@ -230,86 +440,70 @@ export default async function GuidePage({
           markers={markers}
         />
         <p className="mt-2 text-xs text-neutral-500">
-          Orange: Orte & Sehenswertes · Blau: Essen & Trinken · Grün: Wanderungen
+          Orange: Orte & Sehenswertes · Blau: Essen, Trinken & Ausgehen · Grün: Wanderungen
         </p>
       </section>
 
-      {/* Kapitel */}
-      {content.chapters.map((chapter) => (
-        <section key={chapter.key} className="print-break-before mt-16">
-          <div className="flex items-center gap-3">
-            <ChapterIcon kind={chapter.kind === "practical" ? "practical" : chapter.kind} />
-            <h2 className="font-serif text-3xl">{chapter.title}</h2>
-          </div>
-          <p className="mt-3 leading-relaxed text-neutral-700">{chapter.introText}</p>
-          <div className="mt-6 space-y-8">
-            {chapter.entries.map((entry) => renderChapterEntry(chapter, entry))}
-          </div>
-        </section>
-      ))}
+      {/* Ort-Kapitel */}
+      {townChapters.map(renderTownChapter)}
+
+      {/* Wanderungen (mit Link + QR) */}
+      {hikeChapter && renderListChapter(hikeChapter, "hikes")}
+
+      {/* Praktisches rund um den See */}
+      {practicalChapter && renderListChapter(practicalChapter, "practical")}
 
       {/* Tagesvorschläge */}
-      {content.daySuggestions.length > 0 && (
+      {(content.daySuggestions.length > 0 || regenerating) && (
         <section className="print-break-before mt-16">
           <div className="flex items-center gap-3">
             <ChapterIcon kind="days" />
             <h2 className="font-serif text-3xl">Eure Tage am See</h2>
           </div>
+          {content.daySuggestions.length === 0 && regenerating && (
+            <p className="mt-4 animate-pulse text-neutral-400">{TEXT_PLACEHOLDER}</p>
+          )}
           <div className="mt-6 space-y-6">
             {content.daySuggestions.map((d) => (
               <article key={d.day} className="print-avoid-break border-t border-neutral-200 pt-4">
-                <h3 className="font-serif text-xl">
-                  Tag {d.day}: {d.title}
-                </h3>
-                <p className="mt-2 leading-relaxed">{d.text}</p>
+                <div className="flex items-baseline gap-2">
+                  <h3 className="shrink-0 font-serif text-xl">Tag {d.day}:</h3>
+                  <EditableText
+                    token={token}
+                    editable={isOwner}
+                    target={{ kind: "day", day: d.day, field: "title" }}
+                    value={d.title}
+                    multiline={false}
+                    as="span"
+                    className="font-serif text-xl"
+                  />
+                </div>
+                <EditableText
+                  token={token}
+                  editable={isOwner}
+                  target={{ kind: "day", day: d.day, field: "text" }}
+                  value={d.text}
+                  className="mt-2 leading-relaxed"
+                />
               </article>
             ))}
           </div>
         </section>
       )}
 
-      {/* Gut zu wissen: Standard-Infos zur Region (Währung, Geschichte,
-          Sprachführer, Trinkwasser ...), redaktionell gepflegt */}
-      {regionInfos.length > 0 && (
-        <section className="print-break-before mt-16">
-          <div className="flex items-center gap-3">
-            <ChapterIcon kind="info" />
-            <h2 className="font-serif text-3xl">Gut zu wissen</h2>
-          </div>
-          <div className="mt-6 space-y-6">
-            {regionInfos.map((info) => (
-              <article key={info.id} className="print-avoid-break border-t border-neutral-200 pt-4">
-                <h3 className="font-serif text-xl">{info.title}</h3>
-                <p className="mt-2 leading-relaxed whitespace-pre-line">{info.content}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Register: alphabetisches Verzeichnis aller Orte wie im Buch */}
+      {/* Register */}
       <section className="print-break-before mt-16">
         <div className="flex items-center gap-3">
           <ChapterIcon kind="register" />
           <h2 className="font-serif text-3xl">Register</h2>
         </div>
         <ul className="mt-6 columns-2 gap-8 text-sm leading-7">
-          {content.chapters
-            .flatMap((chapter, i) =>
-              chapter.entries.map((entry) => ({
-                name:
-                  placeById.get(entry.id)?.name ?? hikeById.get(entry.id)?.name ?? "",
-                chapter: i + 1,
-              }))
-            )
-            .filter((e) => e.name)
-            .sort((a, b) => a.name.localeCompare(b.name, "de"))
-            .map((e) => (
-              <li key={`${e.name}-${e.chapter}`} className="flex justify-between gap-2">
-                <span>{e.name}</span>
-                <span className="text-neutral-400">Kap. {e.chapter}</span>
-              </li>
-            ))}
+          {registerItems.map((e) => (
+            <li key={`${e.name}-${e.chapter}`} className="flex justify-between gap-2">
+              <span>{e.name}</span>
+              <span className="text-neutral-400">Kap. {e.chapter}</span>
+            </li>
+          ))}
         </ul>
       </section>
 

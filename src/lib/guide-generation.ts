@@ -9,7 +9,12 @@ import {
   type EntryContext,
   type TokenUsage,
 } from "./ai/generate";
-import { validateContentAgainstSelection, type GuideContent } from "./guide-content";
+import {
+  validateContentAgainstSelection,
+  guideContentSchema,
+  mergeGuideContent,
+  type GuideContent,
+} from "./guide-content";
 import { generatePublicToken } from "./token";
 import { sendGuideReadyEmail } from "./email";
 import {
@@ -23,11 +28,17 @@ import {
   formatChunkForPrompt,
   type ChunkWithSource,
 } from "./knowledge";
-import type { Place, Hike, Source } from "@prisma/client";
+import type { Place, Hike, Source, GuideRequest, Guide } from "@prisma/client";
 
 /**
- * Orchestrierung der Guide-Erzeugung (läuft im Worker, nicht im Request):
- * Auswahl-Engine -> kapitelweise KI-Generierung -> Validierung -> Guide + E-Mail.
+ * Guide-Erzeugung in zwei Stufen:
+ *
+ * 1. `createGuideSkeleton` (synchron im Request): Auswahl-Engine läuft sofort,
+ *    der Nutzer landet direkt im Browser-Guide mit allen Orten, Fakten,
+ *    Bildern und Karte – die Textfelder sind noch leer.
+ * 2. `generateGuideForRequest` (Worker): füllt die KI-Texte kapitelweise nach
+ *    und schreibt nach jedem Kapitel in die DB, sodass der Guide sich live
+ *    füllt. Manuelle Nutzer-Änderungen (edited/removedIds) werden bewahrt.
  */
 
 function placeFacts(p: Place): string {
@@ -61,7 +72,6 @@ function hikeFacts(h: Hike): string {
 
 function sourceExcerpts(sources: Source[], libraryChunks: ChunkWithSource[], name: string): string[] {
   const own = sources.filter((s) => s.excerpt).map((s) => s.excerpt);
-  // Passende Notizen aus der Wissensbibliothek (Bücher/Blogs) ergänzen
   const library = chunksForPlaceName(libraryChunks, name).map(formatChunkForPrompt);
   return [...own, ...library];
 }
@@ -75,40 +85,46 @@ function toEntryContext(p: Place & { sources: Source[] }, chunks: ChunkWithSourc
   };
 }
 
-/** Orte grob nach Lage gruppieren (Gebietskapitel), max. ~8 pro Kapitel. */
-function groupByArea<T extends { lat: number }>(items: T[], chunkSize = 8): T[][] {
-  const sorted = [...items].sort((a, b) => b.lat - a.lat);
-  const groups: T[][] = [];
-  for (let i = 0; i < sorted.length; i += chunkSize) {
-    groups.push(sorted.slice(i, i + chunkSize));
-  }
-  return groups;
+interface PreparedGuideData {
+  q: Questionnaire;
+  regionName: string;
+  jobs: ChapterJob[];
+  selection: ReturnType<typeof selectContent>;
+  extraContext: string;
+  entryNameById: Map<string, string>;
 }
 
-export async function generateGuideForRequest(requestId: string): Promise<string> {
-  const request = await prisma.guideRequest.findUniqueOrThrow({ where: { id: requestId } });
+/** Auswahl-Engine + Kapitel-Jobs aufbauen (gemeinsam für Skeleton und Worker). */
+async function prepareGuideData(
+  request: GuideRequest,
+  removedIds: Set<string>
+): Promise<PreparedGuideData> {
   const q: Questionnaire = questionnaireSchema.parse(request.questionnaire);
   const adjustments = adjustmentsSchema.parse(request.adjustments ?? []);
   const mods = modifiersFromAdjustments(adjustments);
 
   const region = await prisma.region.findUniqueOrThrow({ where: { slug: q.regionSlug } });
 
-  // Aufbereitete Notizen aus der Wissensbibliothek (nur analysierte Quellen)
   const allChunks: ChunkWithSource[] = await prisma.knowledgeChunk.findMany({
     where: { document: { regionId: region.id, status: "analyzed" } },
     include: { document: { select: { title: true, kind: true, url: true } } },
   });
   const matchedChunks = matchChunksToQuestionnaire(allChunks, q);
 
-  // Nur verifizierte Einträge gelangen in Guides (Anforderung 4.5)
-  const places = await prisma.place.findMany({
-    where: { regionId: region.id, status: "verified" },
-    include: { sources: true },
-  });
-  const hikes = await prisma.hike.findMany({
-    where: { regionId: region.id, status: "verified" },
-    include: { sources: true },
-  });
+  // Nur verifizierte Einträge gelangen in Guides (Anforderung 4.5);
+  // vom Nutzer entfernte Einträge werden nicht wieder aufgenommen
+  const places = (
+    await prisma.place.findMany({
+      where: { regionId: region.id, status: "verified" },
+      include: { sources: true },
+    })
+  ).filter((p) => !removedIds.has(p.id));
+  const hikes = (
+    await prisma.hike.findMany({
+      where: { regionId: region.id, status: "verified" },
+      include: { sources: true },
+    })
+  ).filter((h) => !removedIds.has(h.id));
 
   const selectablePlaces: SelectablePlace[] = places.map((p) => ({
     id: p.id,
@@ -140,23 +156,78 @@ export async function generateGuideForRequest(requestId: string): Promise<string
 
   const placeById = new Map(places.map((p) => [p.id, p]));
   const hikeById = new Map(hikes.map((h) => [h.id, h]));
+  const entryNameById = new Map<string, string>([
+    ...places.map((p) => [p.id, p.name] as const),
+    ...hikes.map((h) => [h.id, h.name] as const),
+  ]);
 
-  // Kapitel-Jobs bauen
   const jobs: ChapterJob[] = [];
 
-  const selectedPlaces = selection.placeIds
+  // Reihenfolge der Ort-Unterabschnitte (auch für die Reihenfolge der
+  // Einträge, die die KI sieht). Muss zur Anzeige-Reihenfolge passen.
+  const subsectionRank: Record<string, number> = {
+    village: 0,
+    sight: 1,
+    viewpoint: 2,
+    beach: 3,
+    restaurant: 4,
+    bar: 5,
+    hotel: 6,
+    event: 7,
+    practical: 8,
+  };
+
+  // Alle ausgewählten ortsgebundenen Einträge (Orte + Restaurants/Bars)
+  const selectedTownPlaceIds = new Set([...selection.placeIds, ...selection.restaurantIds]);
+  const townScopedPlaces = places.filter(
+    (p) => selectedTownPlaceIds.has(p.id) && p.type !== "practical"
+  );
+  // Praktisches nach ortsgebunden vs. regionsweit trennen
+  const practicalPlaces = selection.practicalIds
     .map((id) => placeById.get(id))
     .filter((p): p is NonNullable<typeof p> => Boolean(p));
-  groupByArea(selectedPlaces).forEach((group, i) => {
-    jobs.push({
-      key: `area-${i + 1}`,
-      kind: "places",
-      workingTitle: `Gebiet ${i + 1}: Orte & Sehenswertes`,
-      instruction:
-        "Diese Orte liegen geografisch beieinander. Beschreibe sie so, dass sie sich gut zu Ausflügen kombinieren lassen.",
-      entries: group.map((p) => toEntryContext(p, allChunks)),
-    });
+
+  type PlaceWithSources = Place & { sources: Source[] };
+  const localityOf = (p: PlaceWithSources) => (p.locality?.trim() ? p.locality.trim() : "");
+
+  // Ort-Kapitel gruppieren
+  const townGroups = new Map<string, PlaceWithSources[]>();
+  for (const p of townScopedPlaces) {
+    const loc = localityOf(p) || "Rund um den See";
+    (townGroups.get(loc) ?? townGroups.set(loc, []).get(loc)!).push(p);
+  }
+  // Ortsgebundenes Praktisches in das jeweilige Ort-Kapitel einsortieren
+  const regionPractical: PlaceWithSources[] = [];
+  for (const p of practicalPlaces) {
+    const loc = localityOf(p);
+    if (loc && townGroups.has(loc)) townGroups.get(loc)!.push(p);
+    else if (loc && townScopedPlaces.some((tp) => localityOf(tp) === loc)) {
+      townGroups.set(loc, [...(townGroups.get(loc) ?? []), p]);
+    } else regionPractical.push(p);
+  }
+
+  const slug = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "ort";
+
+  // Ort-Kapitel nach Lage (Nord → Süd) sortieren für einen natürlichen Fluss
+  const orderedTowns = [...townGroups.entries()].sort((a, b) => {
+    const latA = a[1].reduce((s, p) => s + p.lat, 0) / a[1].length;
+    const latB = b[1].reduce((s, p) => s + p.lat, 0) / b[1].length;
+    return latB - latA;
   });
+
+  for (const [town, townPlaces] of orderedTowns) {
+    const sorted = [...townPlaces].sort(
+      (a, b) => (subsectionRank[a.type] ?? 9) - (subsectionRank[b.type] ?? 9)
+    );
+    jobs.push({
+      key: `town-${slug(town)}`,
+      kind: "town",
+      workingTitle: town,
+      instruction: `Dies ist das Ort-Kapitel für ${town}. Schreibe als Kapitel-Einleitung ("introText") ein lebendiges Kurzporträt des Ortes (4-6 Sätze): Charakter, Lage am See, Atmosphäre, wofür der Ort bekannt ist. Für jeden Eintrag einen einladenden, konkreten Empfehlungstext (3-5 Sätze), sodass man den Ort wirklich kennenlernt. Die Einträge umfassen Sehenswürdigkeiten, Essen & Trinken, Ausgehen, Unterkunft, Veranstaltungen und Praktisches – gehe auf die jeweilige Art passend ein (bei Hotels z. B. Lage/Charakter, bei Restaurants Küche/Ambiente).`,
+      entries: sorted.map((p) => toEntryContext(p, allChunks)),
+    });
+  }
 
   const selectedHikes = selection.hikeIds
     .map((id) => hikeById.get(id))
@@ -167,7 +238,7 @@ export async function generateGuideForRequest(requestId: string): Promise<string
       kind: "hikes",
       workingTitle: "Wanderungen",
       instruction:
-        "Beschreibe die Wanderungen mit Charakter und Landschaftseindruck. Eckdaten (Distanz, Dauer, Höhenmeter) stehen in der Fakten-Box – nicht im Fließtext wiederholen.",
+        "Beschreibe die Wanderungen mit Charakter und Landschaftseindruck (3-5 Sätze je Tour). Eckdaten (Distanz, Dauer, Höhenmeter) stehen in der Fakten-Box – nicht im Fließtext wiederholen. Erwähne, was den Weg besonders macht und für wen er sich eignet.",
       entries: selectedHikes.map((h) => ({
         id: h.id,
         name: h.name,
@@ -177,35 +248,17 @@ export async function generateGuideForRequest(requestId: string): Promise<string
     });
   }
 
-  const selectedRestaurants = selection.restaurantIds
-    .map((id) => placeById.get(id))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p));
-  if (selectedRestaurants.length > 0) {
-    jobs.push({
-      key: "restaurants",
-      kind: "restaurants",
-      workingTitle: "Essen & Trinken",
-      instruction:
-        "Sortiere die Empfehlungen gedanklich nach den kulinarischen Vorlieben der Reisenden und mache Lust auf die Küche der Region.",
-      entries: selectedRestaurants.map((p) => toEntryContext(p, allChunks)),
-    });
-  }
-
-  const practicalPlaces = selection.practicalIds
-    .map((id) => placeById.get(id))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p));
-  if (practicalPlaces.length > 0) {
+  if (regionPractical.length > 0) {
     jobs.push({
       key: "practical",
       kind: "practical",
-      workingTitle: "Praktisches: Anreise, Fähren & Co.",
+      workingTitle: "Praktisches rund um den See",
       instruction:
-        "Fasse die praktischen Hinweise (Fähren/ÖPNV, Parken, regionale Besonderheiten) hilfreich und passend zur gewählten Mobilität zusammen.",
-      entries: practicalPlaces.map((p) => toEntryContext(p, allChunks)),
+        "Fasse die übergreifenden praktischen Hinweise zusammen (Fähren/ÖPNV, Anreise, regionale Besonderheiten). Nenne die verschiedenen Verkehrsmittel als Optionen, ohne dich auf eines zu versteifen.",
+      entries: regionPractical.map((p) => toEntryContext(p, allChunks)),
     });
   }
 
-  // Zusatzkontext für alle KI-Aufrufe: Anpassungswünsche + Bibliotheks-Notizen
   const adjustmentContext = describeAdjustments(adjustments);
   const libraryContext =
     matchedChunks.length > 0
@@ -215,59 +268,158 @@ export async function generateGuideForRequest(requestId: string): Promise<string
       : "";
   const extraContext = [adjustmentContext, libraryContext].filter(Boolean).join("\n\n");
 
-  // Kapitelweise Generierung (Anforderung 4.3)
-  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  const chapters = [];
-  for (const job of jobs) {
-    chapters.push(await generateChapter(q, job, usage, extraContext));
-  }
+  return { q, regionName: region.name, jobs, selection, extraContext, entryNameById };
+}
 
-  const { intro, daySuggestions } = await generateIntro(
-    q,
-    chapters.map((c) => `${c.title}: ${c.entries.map((e) => placeById.get(e.id)?.name ?? hikeById.get(e.id)?.name ?? "").filter(Boolean).join(", ")}`),
-    usage,
-    extraContext
-  );
+/** Kapitel-Struktur mit leeren Textfeldern – sofort durchblätterbar. */
+function buildSkeletonContent(data: PreparedGuideData): GuideContent {
+  return {
+    intro: { title: `Euer ${data.regionName}`, text: "" },
+    chapters: data.jobs.map((job) => ({
+      key: job.key,
+      kind: job.kind,
+      title: job.workingTitle,
+      introText: "",
+      entries: job.entries.map((e) => ({ id: e.id, personalText: "", reason: "" })),
+    })),
+    daySuggestions: [],
+    removedIds: [],
+  };
+}
 
-  const content: GuideContent = { intro, chapters, daySuggestions };
+/**
+ * Stufe 1 (synchron im Fragebogen-Request): Guide-Gerüst anlegen und
+ * Besitzer-Token zurückgeben, damit der Nutzer sofort in den Browser-Guide
+ * weitergeleitet werden kann.
+ */
+export async function createGuideSkeleton(requestId: string): Promise<string> {
+  const existing = await prisma.guide.findFirst({ where: { guideRequestId: requestId } });
+  if (existing) return existing.publicToken;
 
-  // Automatischer Faktentreue-Check: kein Inhalt ohne DB-Beleg
-  const check = validateContentAgainstSelection(content, selection);
-  if (!check.ok) {
-    throw new Error(`Faktentreue-Prüfung fehlgeschlagen, unbekannte ids: ${check.unknownIds.join(", ")}`);
-  }
+  const request = await prisma.guideRequest.findUniqueOrThrow({ where: { id: requestId } });
+  const data = await prepareGuideData(request, new Set());
+  const content = buildSkeletonContent(data);
 
-  // Update-in-Place bei Neu-Generierung/Anpassung: Die Links (publicToken,
-  // shareToken) bleiben stabil, der Inhalt wird ersetzt.
+  const guide = await prisma.guide.create({
+    data: {
+      guideRequestId: requestId,
+      selection: JSON.parse(JSON.stringify(data.selection)),
+      content: JSON.parse(JSON.stringify(content)),
+      publicToken: generatePublicToken(),
+      shareToken: generatePublicToken(),
+      modelUsed: "skeleton",
+    },
+  });
+  return guide.publicToken;
+}
+
+function parseExistingContent(guide: Guide | null): GuideContent | null {
+  if (!guide) return null;
+  const parsed = guideContentSchema.safeParse(guide.content);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Stufe 2 (Worker): KI-Texte kapitelweise erzeugen. Nach jedem Kapitel wird
+ * der Guide-Inhalt gespeichert, sodass sich die Seite live füllt. Manuelle
+ * Änderungen und entfernte Einträge bleiben erhalten.
+ */
+export async function generateGuideForRequest(requestId: string): Promise<string> {
+  const request = await prisma.guideRequest.findUniqueOrThrow({ where: { id: requestId } });
+  const q: Questionnaire = questionnaireSchema.parse(request.questionnaire);
+
   const existing = await prisma.guide.findFirst({
     where: { guideRequestId: request.id },
     orderBy: { generatedAt: "desc" },
   });
+  const existingContent = parseExistingContent(existing);
+  const removedIds = new Set(existingContent?.removedIds ?? []);
 
-  const data = {
-    selection: JSON.parse(JSON.stringify(selection)),
-    content: JSON.parse(JSON.stringify(content)),
-    modelUsed: modelUsed(),
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    generatedAt: new Date(),
+  const data = await prepareGuideData(request, removedIds);
+
+  // Laufender Zwischenstand: beginnt als (gemergtes) Skeleton
+  let working = mergeGuideContent(buildSkeletonContent(data), existingContent ?? buildSkeletonContent(data));
+
+  const guideId = existing
+    ? existing.id
+    : (
+        await prisma.guide.create({
+          data: {
+            guideRequestId: request.id,
+            selection: JSON.parse(JSON.stringify(data.selection)),
+            content: JSON.parse(JSON.stringify(working)),
+            publicToken: generatePublicToken(),
+            shareToken: generatePublicToken(),
+            modelUsed: "skeleton",
+          },
+        })
+      ).id;
+
+  const saveProgress = async (content: GuideContent) => {
+    await prisma.guide.update({
+      where: { id: guideId },
+      data: { content: JSON.parse(JSON.stringify(content)) },
+    });
   };
 
-  const guide = existing
-    ? await prisma.guide.update({ where: { id: existing.id }, data })
-    : await prisma.guide.create({
-        data: {
-          ...data,
-          guideRequestId: request.id,
-          publicToken: generatePublicToken(),
-          shareToken: generatePublicToken(),
-        },
-      });
+  // Kapitelweise Generierung (Anforderung 4.3) mit Live-Zwischenspeichern
+  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const freshChapters = [];
+  for (const job of data.jobs) {
+    const chapter = await generateChapter(q, job, usage, data.extraContext);
+    freshChapters.push(chapter);
+    working = mergeGuideContent(
+      { ...working, chapters: working.chapters.map((c) => (c.key === chapter.key ? chapter : c)) },
+      working
+    );
+    await saveProgress(working);
+  }
+
+  const { intro, daySuggestions } = await generateIntro(
+    q,
+    freshChapters.map(
+      (c) =>
+        `${c.title}: ${c.entries
+          .map((e) => data.entryNameById.get(e.id) ?? "")
+          .filter(Boolean)
+          .join(", ")}`
+    ),
+    usage,
+    data.extraContext
+  );
+
+  const fresh: GuideContent = {
+    intro,
+    chapters: freshChapters,
+    daySuggestions,
+    removedIds: [...removedIds],
+  };
+  const finalContent = mergeGuideContent(fresh, working);
+
+  // Automatischer Faktentreue-Check: kein Inhalt ohne DB-Beleg
+  const check = validateContentAgainstSelection(finalContent, data.selection);
+  if (!check.ok) {
+    throw new Error(
+      `Faktentreue-Prüfung fehlgeschlagen, unbekannte ids: ${check.unknownIds.join(", ")}`
+    );
+  }
+
+  const guide = await prisma.guide.update({
+    where: { id: guideId },
+    data: {
+      selection: JSON.parse(JSON.stringify(data.selection)),
+      content: JSON.parse(JSON.stringify(finalContent)),
+      modelUsed: modelUsed(),
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      generatedAt: new Date(),
+    },
+  });
 
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
   const guideUrl = `${appUrl}/guide/${guide.publicToken}`;
-  const isRevision = Boolean(existing);
-  await sendGuideReadyEmail(q.email, guideUrl, q.firstNames, isRevision);
+  const isRevision = existing?.modelUsed !== undefined && existing?.modelUsed !== "skeleton";
+  await sendGuideReadyEmail(q.email, guideUrl, q.firstNames, Boolean(isRevision));
 
   return guide.id;
 }

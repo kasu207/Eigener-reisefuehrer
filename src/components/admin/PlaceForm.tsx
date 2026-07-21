@@ -33,19 +33,27 @@ export default function PlaceForm({
         <div>
           <label className={labelCls}>Typ</label>
           <select name="type" defaultValue={place?.type ?? "sight"} className={inputCls}>
-            <option value="village">Dorf</option>
+            <option value="village">Dorf/Ort</option>
             <option value="sight">Sehenswürdigkeit</option>
             <option value="viewpoint">Aussichtspunkt</option>
             <option value="beach">Strand/Lido</option>
             <option value="restaurant">Restaurant</option>
             <option value="bar">Bar</option>
+            <option value="hotel">Unterkunft/Hotel</option>
+            <option value="event">Veranstaltung</option>
             <option value="practical">Praktisches</option>
           </select>
         </div>
       </div>
-      <div>
-        <label className={labelCls}>Name</label>
-        <input name="name" defaultValue={place?.name} className={inputCls} required />
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className={labelCls}>Name</label>
+          <input name="name" defaultValue={place?.name} className={inputCls} required />
+        </div>
+        <div>
+          <label className={labelCls}>Ort/Stadt (für die Kapitel-Zuordnung, z. B. Varenna)</label>
+          <input name="locality" defaultValue={place?.locality} className={inputCls} placeholder="leer = regionsweit" />
+        </div>
       </div>
       <div>
         <label className={labelCls}>Koordinaten (Klick auf die Karte)</label>

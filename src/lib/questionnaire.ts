@@ -35,7 +35,9 @@ export const questionnaireSchema = z.object({
     lat: z.number().min(-90).max(90).nullable().optional(),
     lng: z.number().min(-180).max(180).nullable().optional(),
   }),
-  mobility: z.enum(["car", "public", "foot"]),
+  // Mehrere Transportmittel möglich (nicht exklusiv); der Guide fokussiert
+  // sich nicht auf ein Verkehrsmittel, sondern nennt jeweils die Optionen.
+  mobility: z.array(z.enum(["car", "public", "foot"])).min(1).default(["car", "public"]),
 
   // 2. Reisende
   adults: z.number().int().min(1).max(20),

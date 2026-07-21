@@ -20,6 +20,7 @@
     "leaflet": "^1.9.4",
     "next": "^15.5.0",
     "playwright-core": "^1.55.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zod": "^3.25.0"
@@ -28,6 +29,7 @@
     "@tailwindcss/postcss": "^4.1.0",
     "@types/leaflet": "^1.9.20",
     "@types/node": "^22",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "prisma": "^6.16.0",

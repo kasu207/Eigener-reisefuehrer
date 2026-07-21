@@ -10,7 +10,7 @@ import { emptyModifiers, type SelectionModifiers } from "./adjustments";
 
 export interface SelectablePlace {
   id: string;
-  type: "village" | "sight" | "viewpoint" | "beach" | "restaurant" | "bar" | "practical";
+  type: "village" | "sight" | "viewpoint" | "beach" | "restaurant" | "bar" | "hotel" | "event" | "practical";
   name: string;
   lat: number;
   lng: number;
@@ -90,8 +90,11 @@ function smallChildren(q: Questionnaire): boolean {
 /** Harte Filter für Orte (Nicht-Restaurants). */
 export function placePassesHardFilters(p: SelectablePlace, q: Questionnaire): boolean {
   if (smallChildren(q) && !p.childFriendly) return false;
-  // Erreichbarkeit: ohne Auto keine Auto-only-Ziele
-  if (q.mobility !== "car" && p.access === "car") return false;
+  // Verkehrsmittel sind bewusst nicht restriktiv: Nur wer ausschließlich zu
+  // Fuß/Rad unterwegs ist, bekommt keine reinen Auto-Ziele. Sonst wird die
+  // Erreichbarkeit nur im Text erwähnt, nicht als Ausschlusskriterium.
+  const onlyFoot = q.mobility.length === 1 && q.mobility[0] === "foot";
+  if (onlyFoot && p.access === "car") return false;
   return true;
 }
 
@@ -216,12 +219,14 @@ export function computeTargets(
   mods: SelectionModifiers = emptyModifiers()
 ): Selection["targets"] {
   const days = tripDays(q);
-  const paceFactor = q.pace === "entspannt" ? 0.75 : q.pace === "vollgepackt" ? 1.3 : 1;
+  const paceFactor = q.pace === "entspannt" ? 0.8 : q.pace === "vollgepackt" ? 1.3 : 1;
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+  // Großzügige Zielmengen für ein echtes Buch-Gefühl (70–100 Druckseiten):
+  // pro Ort mehrere Sehenswürdigkeiten, Restaurants, Bars, Hotels usw.
   return {
-    places: clamp(days * 4 * paceFactor, 25, 40),
-    hikes: clamp(days * 0.8 * paceFactor, 4, 8) + mods.extraHikes,
-    restaurants: clamp(days * 1.5 * paceFactor, 8, 15) + mods.extraRestaurants,
+    places: clamp(days * 7 * paceFactor, 30, 70),
+    hikes: clamp(days * 1.2 * paceFactor, 4, 12) + mods.extraHikes,
+    restaurants: clamp(days * 3 * paceFactor, 12, 35) + mods.extraRestaurants,
   };
 }
 

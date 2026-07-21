@@ -29,9 +29,19 @@ export default function HikeForm({
           ))}
         </select>
       </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className={labelCls}>Name</label>
+          <input name="name" defaultValue={hike?.name} className={inputCls} required />
+        </div>
+        <div>
+          <label className={labelCls}>Ort/Stadt (optional)</label>
+          <input name="locality" defaultValue={hike?.locality} className={inputCls} placeholder="leer = regionsweit" />
+        </div>
+      </div>
       <div>
-        <label className={labelCls}>Name</label>
-        <input name="name" defaultValue={hike?.name} className={inputCls} required />
+        <label className={labelCls}>Link zur Tour (Komoot/Outdooractive – wird als QR-Code abgebildet)</label>
+        <input name="externalUrl" defaultValue={hike?.externalUrl ?? ""} className={inputCls} placeholder="https://..." />
       </div>
       <div>
         <label className={labelCls}>Startpunkt (Klick auf die Karte)</label>

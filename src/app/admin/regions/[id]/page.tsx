@@ -31,14 +31,19 @@ export default async function RegionDetailPage({ params }: { params: Promise<{ i
               <input type="hidden" name="id" value={info.id} />
               <div className="flex gap-2">
                 <input name="title" defaultValue={info.title} className={inputCls} required />
+                <select name="format" defaultValue={info.format} className="w-32 rounded border border-neutral-300 px-2 py-1 text-sm">
+                  <option value="prose">Fließtext</option>
+                  <option value="table">Tabelle</option>
+                  <option value="timeline">Zeitleiste</option>
+                </select>
                 <input
                   name="sortOrder"
                   defaultValue={info.sortOrder}
-                  className="w-20 rounded border border-neutral-300 px-2 py-1 text-sm"
+                  className="w-16 rounded border border-neutral-300 px-2 py-1 text-sm"
                   title="Sortierung"
                 />
               </div>
-              <textarea name="content" defaultValue={info.content} rows={5} className={inputCls} required />
+              <textarea name="content" defaultValue={info.content} rows={6} className={inputCls} required />
               <div className="flex gap-3">
                 <button className="rounded bg-(--color-ink) px-3 py-1.5 text-xs text-white">Speichern</button>
               </div>
@@ -62,9 +67,17 @@ export default async function RegionDetailPage({ params }: { params: Promise<{ i
         <input type="hidden" name="regionId" value={region.id} />
         <div className="flex gap-2">
           <input name="title" placeholder="Titel (z. B. Währung & Bezahlen)" className={inputCls} required />
-          <input name="sortOrder" placeholder="0" className="w-20 rounded border border-neutral-300 px-2 py-1 text-sm" />
+          <select name="format" defaultValue="prose" className="w-32 rounded border border-neutral-300 px-2 py-1 text-sm">
+            <option value="prose">Fließtext</option>
+            <option value="table">Tabelle</option>
+            <option value="timeline">Zeitleiste</option>
+          </select>
+          <input name="sortOrder" placeholder="0" className="w-16 rounded border border-neutral-300 px-2 py-1 text-sm" />
         </div>
-        <textarea name="content" placeholder="Inhalt" rows={5} className={inputCls} required />
+        <p className="text-xs text-neutral-500">
+          Tabelle: pro Zeile „Begriff | Übersetzung". Zeitleiste: pro Zeile „Jahr | Ereignis | optionaler Side-Fact".
+        </p>
+        <textarea name="content" placeholder="Inhalt" rows={6} className={inputCls} required />
         <button className="rounded bg-(--color-ink) px-4 py-2 text-white">Anlegen</button>
       </form>
     </div>

@@ -46,7 +46,9 @@ export function summarizeQuestionnaire(q: Questionnaire): string {
     `Reisende: ${q.firstNames} – ${q.adults} Erwachsene, ${children}`,
     `Zeitraum: ${q.dateFrom} bis ${q.dateTo} (${tripDays(q)} Tage), Tempo: ${q.pace}`,
     `Unterkunft: ${q.accommodation.label}`,
-    `Mobilität vor Ort: ${q.mobility === "car" ? "Auto" : q.mobility === "public" ? "ÖPNV/Fähre" : "zu Fuß/Rad"}`,
+    `Mobilität vor Ort: ${q.mobility
+      .map((m) => (m === "car" ? "Auto" : m === "public" ? "ÖPNV/Fähre" : "zu Fuß/Rad"))
+      .join(", ")}`,
     `Interessen: ${interests}`,
     `Fitness: ${q.fitnessLevel}, max. Wanderdauer ${q.maxHikeDurationMin} min, max. ${q.maxElevationGainM} Höhenmeter`,
     `Kulinarik: Preisniveau bis ${q.priceLevel}/4, Ernährung: ${q.diets.join(", ") || "keine Einschränkungen"}, Vorlieben: ${q.foodPreferences.join(", ") || "offen"}`,

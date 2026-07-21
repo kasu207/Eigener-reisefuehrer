@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import { rateLimit } from "@/lib/rate-limit";
+import { createGuideSkeleton } from "@/lib/guide-generation";
 
 export const dynamic = "force-dynamic";
 
@@ -46,5 +47,15 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json({ id: request.id }, { status: 201 });
+  // Sofort-Gerüst: Auswahl-Engine läuft synchron, der Nutzer wird direkt in
+  // den Browser-Guide geleitet und kann blättern, während die KI-Texte im
+  // Worker nachlaufen.
+  try {
+    const token = await createGuideSkeleton(request.id);
+    return NextResponse.json({ id: request.id, guideUrl: `/guide/${token}` }, { status: 201 });
+  } catch (err) {
+    console.error("[guide-requests] Skeleton fehlgeschlagen:", err);
+    // Fallback: klassischer Weg über E-Mail
+    return NextResponse.json({ id: request.id }, { status: 201 });
+  }
 }
