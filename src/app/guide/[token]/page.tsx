@@ -5,6 +5,7 @@ import { questionnaireSchema } from "@/lib/questionnaire";
 import { qrDataUri } from "@/lib/qr";
 import { foodTier } from "@/lib/selection";
 import { parseAreaCounts, type AreaKey } from "@/lib/areas";
+import { cleanName, mapsHref } from "@/lib/names";
 import GuideMap, { type MapMarker } from "@/components/GuideMap";
 import AdjustPanel from "@/components/AdjustPanel";
 import FineTunePanel from "@/components/FineTunePanel";
@@ -55,7 +56,7 @@ const FOOD_TIERS: { tier: "fancy" | "mid" | "budget"; title: string; area: AreaK
 
 const TEXT_PLACEHOLDER = "✍️ Euer persönlicher Text entsteht gerade …";
 
-function FactBox({ rows }: { rows: [string, string][] }) {
+function FactBox({ rows }: { rows: [string, React.ReactNode][] }) {
   const filled = rows.filter(([, v]) => v);
   if (filled.length === 0) return null;
   return (
@@ -157,11 +158,11 @@ export default async function GuidePage({
   const markers: MapMarker[] = content.chapters.flatMap((chapter) =>
     chapter.entries.flatMap((entry): MapMarker[] => {
       const h = hikeById.get(entry.id);
-      if (h) return [{ lat: h.startLat, lng: h.startLng, label: h.name, kind: "hike" }];
+      if (h) return [{ lat: h.startLat, lng: h.startLng, label: cleanName(h.name), kind: "hike" }];
       const p = placeById.get(entry.id);
       if (!p || p.type === "practical") return [];
       const kind = p.type === "restaurant" || p.type === "bar" ? "restaurant" : "place";
-      return [{ lat: p.lat, lng: p.lng, label: p.name, kind }];
+      return [{ lat: p.lat, lng: p.lng, label: cleanName(p.name), kind }];
     })
   );
   // Instagram-/Foto-Fundorte als eigene (violette) Pins ergänzen
@@ -206,16 +207,37 @@ export default async function GuidePage({
   function renderPlaceEntry(entry: Chapter["entries"][number]) {
     const place = placeById.get(entry.id);
     if (!place) return null;
+    const name = cleanName(place.name);
+    const hasAddress = Boolean(place.address?.trim());
+    const mapsQuery = hasAddress
+      ? place.address
+      : `${name}${place.locality ? `, ${place.locality}` : ""}`;
+    const mapsUrl = mapsHref(mapsQuery);
     return (
       <article key={entry.id} className="print-avoid-break border-t border-neutral-100 pt-4">
-        <EntryHeader id={entry.id} name={place.name} />
+        <EntryHeader id={entry.id} name={name} />
         <EntryTexts entry={entry} />
         <FactBox
           rows={[
-            ["Adresse", place.address],
+            [
+              "Adresse",
+              hasAddress ? (
+                <a href={mapsUrl} target="_blank" rel="noreferrer" className="text-(--color-accent) underline">
+                  {place.address}
+                </a>
+              ) : (
+                ""
+              ),
+            ],
             ["Preisniveau", priceLabel(place.priceLevel)],
             ["Öffnungszeiten", place.openingNotes],
             ["Erreichbarkeit", accessLabel(place.access)],
+            [
+              "Karte",
+              <a key="m" href={mapsUrl} target="_blank" rel="noreferrer" className="text-(--color-accent) underline">
+                Auf Google Maps öffnen
+              </a>,
+            ],
             ["Hinweis", verifiedNote(place.lastVerifiedAt)],
           ]}
         />
@@ -228,9 +250,10 @@ export default async function GuidePage({
     const hike = hikeById.get(entry.id);
     if (!hike) return null;
     const qr = hikeQr.get(hike.id);
+    const startMapsUrl = mapsHref(`${hike.startLat},${hike.startLng}`);
     return (
       <article key={entry.id} className="print-avoid-break border-t border-neutral-200 pt-6">
-        <EntryHeader id={entry.id} name={hike.name} />
+        <EntryHeader id={entry.id} name={cleanName(hike.name)} />
         <EntryTexts entry={entry} />
         <FactBox
           rows={[
@@ -242,6 +265,12 @@ export default async function GuidePage({
               hike.difficulty === "easy" ? "leicht" : hike.difficulty === "medium" ? "mittel" : "anspruchsvoll",
             ],
             ["Startpunkt", hike.startDescription],
+            [
+              "Karte",
+              <a key="m" href={startMapsUrl} target="_blank" rel="noreferrer" className="text-(--color-accent) underline">
+                Startpunkt auf Google Maps
+              </a>,
+            ],
             ["Hinweis", verifiedNote(hike.lastVerifiedAt)],
           ]}
         />
@@ -291,7 +320,7 @@ export default async function GuidePage({
         : undefined;
     // Einträge nach festen Unterabschnitten gruppieren (immer gleiche Struktur)
     return (
-      <section key={chapter.key} className="print-break-before mt-16">
+      <section key={chapter.key} id={`kap-${chapter.key}`} className="print-break-before mt-16 scroll-mt-24">
         <div className="flex items-center gap-3">
           <ChapterIcon kind="places" />
           <EditableText
@@ -376,7 +405,7 @@ export default async function GuidePage({
   function renderListChapter(chapter: Chapter, icon: "hikes" | "practical") {
     const isHikes = chapter.kind === "hikes";
     return (
-      <section key={chapter.key} className="print-break-before mt-16">
+      <section key={chapter.key} id={`kap-${chapter.key}`} className="print-break-before mt-16 scroll-mt-24">
         <div className="flex items-center gap-3">
           <ChapterIcon kind={icon} />
           <EditableText
@@ -415,7 +444,7 @@ export default async function GuidePage({
   const registerItems = content.chapters
     .flatMap((chapter, i) =>
       chapter.entries.map((entry) => ({
-        name: placeById.get(entry.id)?.name ?? hikeById.get(entry.id)?.name ?? "",
+        name: cleanName(placeById.get(entry.id)?.name ?? hikeById.get(entry.id)?.name ?? ""),
         chapter: i + 1,
       }))
     )
@@ -491,24 +520,63 @@ export default async function GuidePage({
         />
       </section>
 
-      {/* Inhaltsverzeichnis */}
+      {/* Inhaltsverzeichnis (klickbar – im Browser und beim Druck/PDF) */}
       <nav className="print-break-before mt-12 rounded-2xl border border-neutral-200 bg-white p-6">
         <h2 className="font-serif text-2xl">Inhalt</h2>
         <ol className="mt-4 space-y-1 text-neutral-700">
-          {regionInfos.length > 0 && <li>Die Region verstehen</li>}
+          {regionInfos.length > 0 && (
+            <li>
+              <a href="#region-info" className="hover:text-(--color-accent) hover:underline">
+                Die Region verstehen
+              </a>
+            </li>
+          )}
           {townChapters.map((c) => (
-            <li key={c.key}>{c.title}</li>
+            <li key={c.key}>
+              <a href={`#kap-${c.key}`} className="hover:text-(--color-accent) hover:underline">
+                {c.title}
+              </a>
+            </li>
           ))}
-          {hikeChapter && <li>{hikeChapter.title}</li>}
-          {practicalChapter && <li>{practicalChapter.title}</li>}
-          {content.daySuggestions.length > 0 && <li>Eure Tage am See</li>}
-          <li>Register</li>
+          {hikeChapter && (
+            <li>
+              <a href={`#kap-${hikeChapter.key}`} className="hover:text-(--color-accent) hover:underline">
+                {hikeChapter.title}
+              </a>
+            </li>
+          )}
+          {practicalChapter && (
+            <li>
+              <a href={`#kap-${practicalChapter.key}`} className="hover:text-(--color-accent) hover:underline">
+                {practicalChapter.title}
+              </a>
+            </li>
+          )}
+          {mapSpots.length > 0 && (
+            <li>
+              <a href="#fotospots" className="hover:text-(--color-accent) hover:underline">
+                Foto-Spots & Fundorte
+              </a>
+            </li>
+          )}
+          {content.daySuggestions.length > 0 && (
+            <li>
+              <a href="#tage" className="hover:text-(--color-accent) hover:underline">
+                Eure Tage am See
+              </a>
+            </li>
+          )}
+          <li>
+            <a href="#register" className="hover:text-(--color-accent) hover:underline">
+              Register
+            </a>
+          </li>
         </ol>
       </nav>
 
       {/* Front-Matter: Die Region verstehen (Geschichte, Sprachführer, ...) */}
       {regionInfos.length > 0 && (
-        <section className="print-break-before mt-16">
+        <section id="region-info" className="print-break-before mt-16 scroll-mt-24">
           <div className="flex items-center gap-3">
             <ChapterIcon kind="info" />
             <h2 className="font-serif text-3xl">Die Region verstehen</h2>
@@ -548,7 +616,7 @@ export default async function GuidePage({
 
       {/* Foto-Spots & Instagram-Fundorte (zusätzliche Karten-Pins) */}
       {mapSpots.length > 0 && (
-        <section className="print-break-before mt-16">
+        <section id="fotospots" className="print-break-before mt-16 scroll-mt-24">
           <div className="flex items-center gap-3">
             <ChapterIcon kind="map" />
             <h2 className="font-serif text-3xl">Foto-Spots & Fundorte</h2>
@@ -581,7 +649,7 @@ export default async function GuidePage({
 
       {/* Tagesvorschläge */}
       {(content.daySuggestions.length > 0 || regenerating) && (
-        <section className="print-break-before mt-16">
+        <section id="tage" className="print-break-before mt-16 scroll-mt-24">
           <div className="flex items-center gap-3">
             <ChapterIcon kind="days" />
             <h2 className="font-serif text-3xl">Eure Tage am See</h2>
@@ -618,7 +686,7 @@ export default async function GuidePage({
       )}
 
       {/* Register */}
-      <section className="print-break-before mt-16">
+      <section id="register" className="print-break-before mt-16 scroll-mt-24">
         <div className="flex items-center gap-3">
           <ChapterIcon kind="register" />
           <h2 className="font-serif text-3xl">Register</h2>

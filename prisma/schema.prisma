@@ -57,6 +57,7 @@ enum SourceType {
   blog
   instagram
   portal
+  youtube
   own
 }
 

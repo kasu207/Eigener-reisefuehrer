@@ -29,6 +29,7 @@ import {
   guideContentSchema,
   type GuideContent,
 } from "./guide-content";
+import { cleanName } from "./names";
 import { generatePublicToken } from "./token";
 import { sendGuideReadyEmail } from "./email";
 import {
@@ -93,7 +94,7 @@ function sourceExcerpts(sources: Source[], libraryChunks: ChunkWithSource[], nam
 function toEntryContext(p: Place & { sources: Source[] }, chunks: ChunkWithSource[]): EntryContext {
   return {
     id: p.id,
-    name: p.name,
+    name: cleanName(p.name),
     facts: placeFacts(p),
     sourceExcerpts: sourceExcerpts(p.sources, chunks, p.name),
   };
@@ -173,8 +174,8 @@ async function prepareGuideData(
   const placeById = new Map(places.map((p) => [p.id, p]));
   const hikeById = new Map(hikes.map((h) => [h.id, h]));
   const entryNameById = new Map<string, string>([
-    ...places.map((p) => [p.id, p.name] as const),
-    ...hikes.map((h) => [h.id, h.name] as const),
+    ...places.map((p) => [p.id, cleanName(p.name)] as const),
+    ...hikes.map((h) => [h.id, cleanName(h.name)] as const),
   ]);
 
   const jobs: ChapterJob[] = [];
@@ -323,7 +324,7 @@ async function prepareGuideData(
         "Beschreibe die Wanderungen mit Charakter und Landschaftseindruck (3-5 Sätze je Tour). Eckdaten (Distanz, Dauer, Höhenmeter) stehen in der Fakten-Box – nicht im Fließtext wiederholen. Erwähne, was den Weg besonders macht und für wen er sich eignet.",
       entries: selectedHikes.map((h) => ({
         id: h.id,
-        name: h.name,
+        name: cleanName(h.name),
         facts: hikeFacts(h),
         sourceExcerpts: sourceExcerpts(h.sources, allChunks, h.name),
       })),

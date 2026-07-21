@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { AI_MODEL } from "@/lib/ai/model";
 import { isMock } from "@/lib/ai/mock";
-import { generatePlaceDrafts } from "../actions";
+import { generatePlaceDrafts, analyzeYoutubeForPlaces } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,12 @@ const COVERAGE_GROUPS: { key: string; label: string; types: string[] }[] = [
 export default async function KuratierenPage({
   searchParams,
 }: {
-  searchParams: Promise<{ created?: string; error?: string }>;
+  searchParams: Promise<{
+    created?: string;
+    error?: string;
+    videos?: string;
+    ythint?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const regions = await prisma.region.findMany({ orderBy: { name: "asc" } });
@@ -64,7 +69,7 @@ export default async function KuratierenPage({
         </p>
       </div>
 
-      {sp.created && (
+      {sp.created && !sp.videos && (
         <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {sp.created} Entwurf/Entwürfe angelegt. Prüfe sie unter{" "}
           <Link href="/admin/places" className="underline">
@@ -77,6 +82,14 @@ export default async function KuratierenPage({
       {sp.error && (
         <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           Abgelehnt: {sp.error}
+        </div>
+      )}
+      {sp.videos && (
+        <div className="rounded border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          {sp.videos} Video(s) analysiert, {sp.created ?? 0} neue Ort-Entwürfe angelegt.
+          {sp.ythint && (
+            <p className="mt-1 text-xs text-sky-700">Hinweise: {sp.ythint}</p>
+          )}
         </div>
       )}
 
@@ -165,6 +178,42 @@ export default async function KuratierenPage({
             zur Prüfung offen.
           </p>
         )}
+      </section>
+
+      {/* YouTube-Transkript-Analyzer */}
+      <section className="rounded border border-neutral-200 bg-white p-4">
+        <h3 className="mb-2 font-serif text-lg">YouTube-Videos auslesen</h3>
+        <p className="mb-3 text-sm text-neutral-600">
+          Füge einen oder mehrere YouTube-Links ein (ein Link pro Zeile). Das
+          System holt das Transkript, die KI liest die genannten Orte heraus und
+          legt sie als <strong>Entwürfe</strong> an – jeweils mit dem Video als
+          Quelle. Danach prüfst/recherchierst du Fakten und Koordinaten, bevor du
+          auf „Geprüft" stellst. Nur Videos mit Untertiteln funktionieren.
+        </p>
+        <form action={analyzeYoutubeForPlaces} className="space-y-3">
+          <input type="hidden" name="regionId" value={defaultRegion?.id ?? ""} />
+          <label className="block text-sm">
+            <span className="mb-1 block text-neutral-600">YouTube-Links (max. 10)</span>
+            <textarea
+              name="urls"
+              rows={4}
+              placeholder={"https://www.youtube.com/watch?v=…\nhttps://youtu.be/…"}
+              className={`${inputCls} font-mono text-xs`}
+              required
+            />
+          </label>
+          <div>
+            <button className="rounded bg-(--color-ink) px-4 py-2 text-sm text-white">
+              Videos analysieren
+            </button>
+            {isMock() && (
+              <span className="ml-3 text-xs text-amber-700">
+                Im Mock-Modus entsteht nur ein Platzhalter – für echte Analyse
+                AI_MODE=live setzen.
+              </span>
+            )}
+          </div>
+        </form>
       </section>
 
       {/* Bücher einlesen */}

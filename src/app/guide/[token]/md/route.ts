@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { guideContentSchema } from "@/lib/guide-content";
 import { questionnaireSchema } from "@/lib/questionnaire";
+import { cleanName, mapsHref } from "@/lib/names";
 import type { Place, Hike } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -104,10 +105,19 @@ export async function GET(
     for (const entry of chapter.entries) {
       const place = placeById.get(entry.id);
       const hike = hikeById.get(entry.id);
-      const name = place?.name ?? hike?.name ?? entry.id;
+      const name = cleanName(place?.name ?? hike?.name ?? entry.id);
       out.push(`### ${name}`);
       const facts = place ? placeFacts(place) : hike ? hikeFacts(hike) : "";
       if (facts) out.push(`_${facts}_`);
+      if (place) {
+        const query = place.address?.trim()
+          ? place.address
+          : `${name}${place.locality ? `, ${place.locality}` : ""}`;
+        if (place.address?.trim()) out.push(`Adresse: ${place.address}`);
+        out.push(`[📍 Auf Google Maps öffnen](${mapsHref(query)})`);
+      } else if (hike) {
+        out.push(`[📍 Startpunkt auf Google Maps](${mapsHref(`${hike.startLat},${hike.startLng}`)})`);
+      }
       if (entry.personalText?.trim()) out.push(entry.personalText.trim());
       if (entry.reason?.trim()) out.push(`> ${entry.reason.trim()}`);
       out.push("");
@@ -126,7 +136,7 @@ export async function GET(
 
   // Register (alphabetisch) – hilft, doppelte Einträge sofort zu sehen
   const names = content.chapters
-    .flatMap((c) => c.entries.map((e) => placeById.get(e.id)?.name ?? hikeById.get(e.id)?.name ?? e.id))
+    .flatMap((c) => c.entries.map((e) => cleanName(placeById.get(e.id)?.name ?? hikeById.get(e.id)?.name ?? e.id)))
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "de"));
   out.push(`## Register (${names.length} Einträge)`);

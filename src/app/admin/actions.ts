@@ -8,6 +8,8 @@ import {
   UnsafeSuggestionError,
   type SuggestPlaceType,
 } from "@/lib/ai/suggest-places";
+import { extractPlacesFromText, UnsafeExtractionError } from "@/lib/ai/extract-places";
+import { fetchYoutubeTranscript } from "@/lib/youtube/transcript";
 import type {
   PlaceType,
   Access,
@@ -153,6 +155,105 @@ export async function generatePlaceDrafts(fd: FormData) {
   revalidatePath("/admin/kuratieren");
   revalidatePath("/admin/places");
   redirect(`/admin/kuratieren?created=${created}`);
+}
+
+/**
+ * YouTube-Transkript-Analyzer (Kuratierungs-Hilfe): Redakteur:in fügt einen oder
+ * mehrere YouTube-Links ein. Das System holt das Transkript, die KI liest die
+ * genannten Orte heraus und legt sie als ENTWÜRFE (status = draft) an – jeweils
+ * mit dem Video als Quelle und einem Kontext-Zitat. Fakten und Koordinaten
+ * prüft/recherchiert die Redaktion, bevor der Ort auf „Geprüft" geht.
+ */
+export async function analyzeYoutubeForPlaces(fd: FormData) {
+  const regionId = str(fd, "regionId");
+  const region = await prisma.region.findUnique({ where: { id: regionId } });
+  if (!region) throw new Error("Region nicht gefunden");
+
+  const urls = str(fd, "urls")
+    .split(/[\s,]+/)
+    .map((u) => u.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  if (urls.length === 0) {
+    redirect(`/admin/kuratieren?error=${encodeURIComponent("Keine YouTube-Links angegeben.")}`);
+  }
+
+  let created = 0;
+  let videosOk = 0;
+  const problems: string[] = [];
+
+  // Bereits vorhandene Orte (Name+Ort, kleingeschrieben) – keine Dubletten anlegen
+  const existing = await prisma.place.findMany({
+    where: { regionId },
+    select: { name: true, locality: true },
+  });
+  const seen = new Set(
+    existing.map((p) => `${p.name.toLowerCase()}|${(p.locality ?? "").toLowerCase()}`)
+  );
+
+  for (const raw of urls) {
+    let transcript;
+    try {
+      transcript = await fetchYoutubeTranscript(raw);
+    } catch (e) {
+      problems.push(e instanceof Error ? e.message : `Abruf fehlgeschlagen: ${raw}`);
+      continue;
+    }
+
+    let result;
+    try {
+      result = await extractPlacesFromText({
+        regionName: region.name,
+        text: transcript.text,
+        sourceLabel: `YouTube-Video „${transcript.title}"`,
+      });
+    } catch (e) {
+      if (e instanceof UnsafeExtractionError) {
+        problems.push(`„${transcript.title}": ${e.reason}`);
+        continue;
+      }
+      problems.push(`„${transcript.title}": Analyse fehlgeschlagen`);
+      continue;
+    }
+    videosOk += 1;
+
+    for (const p of result.places) {
+      const key = `${p.name.toLowerCase()}|${(p.locality || "").toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const place = await prisma.place.create({
+        data: {
+          regionId,
+          type: p.type as PlaceType,
+          name: p.name,
+          locality: p.locality,
+          // Platzhalter-Koordinaten (Regions-Mitte) – per Kartenklick korrigieren
+          lat: region.centerLat,
+          lng: region.centerLng,
+          tags: p.tags.map((t) => t.toLowerCase()),
+          priceLevel: p.priceLevel ?? undefined,
+          editorNotes: `[Aus YouTube-Video „${transcript.title}" · Sicherheit real: ${p.confidence} · FAKTEN & KOORDINATEN PRÜFEN] ${p.quote}`,
+          status: "draft",
+        },
+      });
+      await prisma.source.create({
+        data: {
+          placeId: place.id,
+          url: transcript.url,
+          sourceType: "youtube",
+          excerpt: `[Video „${transcript.title}"] ${p.quote}`.slice(0, 500),
+        },
+      });
+      created += 1;
+    }
+  }
+
+  revalidatePath("/admin/kuratieren");
+  revalidatePath("/admin/places");
+  const params = new URLSearchParams({ created: String(created), videos: String(videosOk) });
+  if (problems.length) params.set("ythint", problems.slice(0, 5).join(" · "));
+  redirect(`/admin/kuratieren?${params.toString()}`);
 }
 
 // ---------- Wanderungen ----------
