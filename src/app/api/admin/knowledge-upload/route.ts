@@ -28,8 +28,10 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await req.arrayBuffer());
     const receivedMb = (buffer.length / 1_048_576).toFixed(1);
     const declaredLen = req.headers.get("content-length");
+    const head = buffer.subarray(0, 4).toString("hex");
+    const tail = buffer.subarray(Math.max(0, buffer.length - 4)).toString("hex");
     console.log(
-      `[upload-route] Start: name=${filename} received=${receivedMb}MB content-length=${declaredLen ?? "?"} type=${mimeType || "?"}`
+      `[upload-route] Start: name=${filename} received=${receivedMb}MB content-length=${declaredLen ?? "?"} type=${mimeType || "?"} head=${head} tail=${tail}`
     );
     if (buffer.length === 0) {
       return NextResponse.json({ error: "Leere Datei empfangen." }, { status: 400 });

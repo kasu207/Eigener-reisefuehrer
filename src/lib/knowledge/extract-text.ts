@@ -29,6 +29,11 @@ function stripHtml(html: string): string {
 }
 
 async function extractPdf(buffer: Buffer): Promise<string> {
+  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
+    throw new Error(
+      "Datei ist kein gültiges PDF (Signatur fehlt). Möglicherweise ein iCloud-Platzhalter, der nicht vollständig geladen wurde – bitte die Datei erst komplett herunterladen."
+    );
+  }
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
@@ -40,8 +45,21 @@ async function extractPdf(buffer: Buffer): Promise<string> {
 }
 
 async function extractEpub(buffer: Buffer): Promise<string> {
+  // Zip-Signatur prüfen: gültige EPUBs beginnen mit "PK".
+  if (buffer.subarray(0, 2).toString("latin1") !== "PK") {
+    throw new Error(
+      "Datei ist kein gültiges EPUB (ZIP-Signatur fehlt). Wahrscheinlich ein iCloud-Platzhalter, der nicht vollständig geladen wurde – bitte die Datei in der Dateien-App erst komplett herunterladen und erneut versuchen."
+    );
+  }
   const { default: JSZip } = await import("jszip");
-  const zip = await JSZip.loadAsync(buffer);
+  let zip: Awaited<ReturnType<typeof JSZip.loadAsync>>;
+  try {
+    zip = await JSZip.loadAsync(buffer);
+  } catch {
+    throw new Error(
+      "EPUB konnte nicht entpackt werden – die Datei ist unvollständig oder beschädigt (evtl. nicht komplett aus iCloud geladen oder kopiergeschützt/DRM). Bitte die Datei vollständig herunterladen oder ein DRM-freies PDF verwenden."
+    );
+  }
   // Alle (X)HTML-Kapitel einlesen, nach Dateinamen sortiert (grobe Lesereihenfolge).
   // Bilder/Fonts werden nie entpackt – nur die Textdateien.
   const entries = Object.values(zip.files)
