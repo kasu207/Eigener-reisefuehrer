@@ -26,8 +26,10 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await req.arrayBuffer());
+    const receivedMb = (buffer.length / 1_048_576).toFixed(1);
+    const declaredLen = req.headers.get("content-length");
     console.log(
-      `[upload-route] Start: name=${filename} size=${(buffer.length / 1_048_576).toFixed(1)}MB type=${mimeType || "?"}`
+      `[upload-route] Start: name=${filename} received=${receivedMb}MB content-length=${declaredLen ?? "?"} type=${mimeType || "?"}`
     );
     if (buffer.length === 0) {
       return NextResponse.json({ error: "Leere Datei empfangen." }, { status: 400 });
@@ -35,9 +37,29 @@ export async function POST(req: NextRequest) {
     if (buffer.length > MAX_UPLOAD_BYTES) {
       return NextResponse.json({ error: "Datei zu groß (max. 120 MB)." }, { status: 413 });
     }
+    // Kam weniger an als angekündigt? Dann wurde der Upload abgeschnitten
+    // (z. B. durch einen Reverse-Proxy) – klare Meldung statt kryptischem Zip-Fehler.
+    if (declaredLen && Number(declaredLen) > buffer.length + 1024) {
+      return NextResponse.json(
+        {
+          error: `Upload wurde abgeschnitten: angekündigt ${(Number(declaredLen) / 1_048_576).toFixed(1)} MB, empfangen ${receivedMb} MB. Vermutlich begrenzt ein Reverse-Proxy (z. B. Caddy/nginx) die Body-Größe.`,
+        },
+        { status: 413 }
+      );
+    }
 
     const { extractText } = await import("@/lib/knowledge/extract-text");
-    const { text, kind } = await extractText(buffer, filename, mimeType);
+    let text: string;
+    let kind: string;
+    try {
+      ({ text, kind } = await extractText(buffer, filename, mimeType));
+    } catch (ex) {
+      const base = ex instanceof Error ? ex.message : "Datei konnte nicht gelesen werden.";
+      return NextResponse.json(
+        { error: `${base} (empfangen: ${receivedMb} MB)` },
+        { status: 422 }
+      );
+    }
     console.log(`[upload-route] Extrahiert: kind=${kind} textLen=${text.length}`);
 
     await prisma.knowledgeDocument.create({
