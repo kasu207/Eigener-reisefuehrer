@@ -432,12 +432,19 @@ export default async function GuidePage({
           className="mt-4 font-serif text-5xl leading-tight"
         />
         <p className="mt-4 text-xl text-neutral-600">für {q.firstNames}</p>
-        <div className="no-print mt-8">
+        <div className="no-print mt-8 flex flex-wrap justify-center gap-3">
           <a
             href={`/guide/${token}/pdf`}
             className="inline-block rounded-full border border-(--color-ink) px-6 py-3 text-sm transition hover:bg-(--color-ink) hover:text-white"
           >
             Als PDF herunterladen (A5)
+          </a>
+          <a
+            href={`/guide/${token}/md`}
+            className="inline-block rounded-full border border-neutral-400 px-6 py-3 text-sm text-neutral-600 transition hover:bg-neutral-100"
+            title="Textfassung zum Prüfen/Teilen (Debugging)"
+          >
+            Als Markdown (.md)
           </a>
         </div>
       </header>
