@@ -34,11 +34,15 @@ export default function AreaControl({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
+  // Bestand erschöpft -> Recherche NICHT automatisch starten (Kosten!),
+  // sondern erst einen ausdrücklichen Button anbieten.
+  const [exhausted, setExhausted] = useState(false);
 
   async function change(delta: number) {
     setBusy(true);
     setNote(null);
     setCandidate(null);
+    setExhausted(false);
     try {
       const res = await fetch(`/api/guides/${token}/area`, {
         method: "POST",
@@ -60,9 +64,11 @@ export default function AreaControl({
         setTimeout(() => setNote(null), 5000);
         return;
       }
-      // Nichts mehr im Bestand: bei "+" mit bekanntem Ort -> KI-Recherche
+      // Nichts mehr im Bestand: bei "+" mit bekanntem Ort Recherche ANBIETEN
+      // (nicht automatisch ausführen – Websuche kostet).
       if (delta > 0 && locality) {
-        await research();
+        setExhausted(true);
+        setNote("Bestand erschöpft.");
       } else {
         setNote(data.message ?? "Keine Änderung möglich.");
       }
@@ -143,6 +149,17 @@ export default function AreaControl({
         +
       </button>
       {note && <span className="ml-1 text-xs font-normal text-neutral-500">{note}</span>}
+
+      {exhausted && !candidate && (
+        <button
+          onClick={research}
+          disabled={busy}
+          title="Sucht per Websuche einen neuen, echten Ort (kostet etwas Budget)"
+          className="ml-1 rounded-full border border-(--color-accent-soft) bg-(--color-accent-soft)/30 px-2 py-0.5 text-xs text-(--color-accent) disabled:opacity-40"
+        >
+          🔎 Neuen Ort recherchieren
+        </button>
+      )}
 
       {candidate && (
         <span className="mt-2 block w-full max-w-md rounded-lg border border-(--color-accent-soft) bg-(--color-paper) p-3 text-left">

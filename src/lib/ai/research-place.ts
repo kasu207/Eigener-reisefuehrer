@@ -3,13 +3,25 @@ import { isMock } from "./mock";
 import { AI_MODEL } from "./model";
 
 /**
- * "+"-Recherche: findet EINEN echten, existierenden Ort für einen bestimmten
- * Ort + Bereich per Websuche (Anthropic web_search-Tool, mit Zitat/Quelle).
- * Ergebnis ist ein VORSCHLAG mit Quelle + Maps-Link zum Verifizieren – er wird
- * erst nach Bestätigung durch die Nutzer:in als Ort gespeichert.
+ * "+"-Recherche: findet echte, existierende Orte für einen bestimmten Ort +
+ * Bereich per Websuche (Anthropic web_search-Tool, mit Zitat/Quelle).
+ *
+ * Kostenbewusst:
+ * - Ein Aufruf holt MEHRERE Kandidaten auf einmal (statt pro Klick neu zu
+ *   suchen); der Aufrufer cacht sie und bedient Folge-Klicks daraus.
+ * - Websuche gedeckelt (max_uses klein), pause_turn-Schleife kurz.
+ * - Der stabile Teil des Prompts läuft als gecachter System-Prompt.
+ * Ergebnisse sind VORSCHLÄGE mit Quelle + Maps-Link zum Verifizieren – sie
+ * werden erst nach Bestätigung durch die Nutzer:in als Ort gespeichert.
  */
 
 const client = new Anthropic({ maxRetries: 2 });
+
+// Wie viele Suchen/Runden pro Recherche maximal – bewusst niedrig (Kosten).
+const MAX_WEB_SEARCHES = 2;
+const MAX_PAUSE_TURNS = 2;
+// Wie viele Kandidaten ein einziger Aufruf liefern soll (Cache-Vorrat).
+const CANDIDATES_PER_CALL = 4;
 
 export interface PlaceCandidate {
   name: string;
@@ -37,6 +49,32 @@ function mapsUrl(name: string, locality: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
+/** Stabiler Instruktions-Teil – als System-Prompt gecacht (spart Input-Tokens). */
+const SYSTEM_PROMPT = `Du bist Rechercheredakteur:in für einen kuratierten Reiseführer.
+
+AUFGABE: Finde per Websuche echte, aktuell existierende Orte, die zur Anfrage passen. Das sind VORSCHLÄGE zum Verifizieren, keine fertigen Guide-Inhalte.
+
+HARTE REGELN:
+- Nutze die Websuche sparsam und schlage nur Orte vor, die es WIRKLICH gibt (mit belegbarer Quelle).
+- Jeder Ort muss in oder sehr nah beim genannten Ort liegen.
+- Schlage KEINE bereits enthaltenen Orte erneut vor.
+- Erfinde keine Fakten. Preise/Öffnungszeiten nur, wenn belegt.
+
+Antworte am Ende mit GENAU einem JSON-Objekt in einem \`\`\`json-Block:
+{
+  "candidates": [
+    {
+      "name": string,
+      "note": string (1-2 Sätze auf Deutsch, was den Ort ausmacht),
+      "priceLevel": number (1-4) oder null,
+      "address": string oder null,
+      "sourceUrl": string (Beleg-URL),
+      "sourceTitle": string,
+      "confidence": "hoch" | "mittel" | "niedrig"
+    }
+  ]
+}`;
+
 /** JSON-Objekt aus dem Antworttext extrahieren (letztes {...}). */
 function extractJson(text: string): Record<string, unknown> | null {
   const fence = text.match(/```json\s*([\s\S]*?)```/i);
@@ -44,7 +82,6 @@ function extractJson(text: string): Record<string, unknown> | null {
   try {
     return JSON.parse(raw.trim());
   } catch {
-    // Fallback: erstes bis letztes geschweiftes Klammernpaar
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     if (start >= 0 && end > start) {
@@ -58,66 +95,78 @@ function extractJson(text: string): Record<string, unknown> | null {
   }
 }
 
-export async function researchPlace(input: ResearchInput): Promise<PlaceCandidate | null> {
+function normalizeCandidate(raw: unknown, locality: string): PlaceCandidate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  if (typeof c.name !== "string" || !c.name.trim()) return null;
+  const name = c.name.trim();
+  const pl = Number(c.priceLevel);
+  return {
+    name,
+    note: typeof c.note === "string" ? c.note.trim() : "",
+    priceLevel: Number.isInteger(pl) && pl >= 1 && pl <= 4 ? pl : null,
+    address: typeof c.address === "string" && c.address.trim() ? c.address.trim() : null,
+    sourceUrl: typeof c.sourceUrl === "string" ? c.sourceUrl.trim() : "",
+    sourceTitle: typeof c.sourceTitle === "string" ? c.sourceTitle.trim() : "",
+    confidence:
+      c.confidence === "hoch" || c.confidence === "mittel" ? c.confidence : "niedrig",
+    mapsUrl: mapsUrl(name, locality),
+  };
+}
+
+/**
+ * Recherchiert MEHRERE Kandidaten in einem einzigen Aufruf (Cache-Vorrat).
+ * Gibt eine (ggf. leere) Liste zurück.
+ */
+export async function researchPlaceCandidates(input: ResearchInput): Promise<PlaceCandidate[]> {
   if (isMock()) {
-    const name = `Neuer Tipp in ${input.locality} (Mock)`;
-    return {
-      name,
-      note: "Mock-Vorschlag ohne Websuche. Im Live-Modus recherchiert die KI hier einen echten Ort mit Quelle.",
-      priceLevel: 2,
-      address: null,
-      sourceUrl: "https://example.com",
-      sourceTitle: "Beispielquelle (Mock)",
-      confidence: "niedrig",
-      mapsUrl: mapsUrl(name, input.locality),
-    };
+    return Array.from({ length: 3 }, (_, i) => {
+      const name = `Neuer Tipp ${i + 1} in ${input.locality} (Mock)`;
+      return {
+        name,
+        note: "Mock-Vorschlag ohne Websuche. Im Live-Modus recherchiert die KI hier echte Orte mit Quelle.",
+        priceLevel: 2,
+        address: null,
+        sourceUrl: "https://example.com",
+        sourceTitle: "Beispielquelle (Mock)",
+        confidence: "niedrig" as const,
+        mapsUrl: mapsUrl(name, input.locality),
+      };
+    });
   }
 
-  const prompt = `Finde EINEN echten, aktuell existierenden ${input.areaLabel} in ${input.locality} am ${input.regionName}, der zu diesen Reisenden passt.
+  const userPrompt = `Finde bis zu ${CANDIDATES_PER_CALL} echte ${input.areaLabel} in ${input.locality} am ${input.regionName}, die zu diesen Reisenden passen.
 
 Reise-Kontext:
 - Interessen: ${input.interests.join(", ") || "offen"}
 - Preisniveau bis: ${input.priceLevelMax}/4
 - Ernährung: ${input.diets.join(", ") || "keine Einschränkung"}
 
-WICHTIG:
-- Nutze die Websuche und schlage nur einen Ort vor, den es WIRKLICH gibt (mit belegbarer Quelle).
-- Der Ort muss in oder sehr nah bei ${input.locality} liegen.
-- Schlage KEINEN dieser bereits enthaltenen Orte vor: ${input.excludeNames.join("; ") || "(keine)"}.
-- Erfinde keine Fakten. Preise/Öffnungszeiten nur, wenn belegt.
+Bereits enthalten (NICHT erneut vorschlagen): ${input.excludeNames.join("; ") || "(keine)"}.
 
-Antworte am Ende mit GENAU einem JSON-Objekt in einem \`\`\`json-Block mit den Feldern:
-{
-  "name": string,
-  "note": string (1-2 Sätze auf Deutsch, was den Ort ausmacht),
-  "priceLevel": number (1-4) oder null,
-  "address": string oder null,
-  "sourceUrl": string (Beleg-URL),
-  "sourceTitle": string,
-  "confidence": "hoch" | "mittel" | "niedrig"
-}`;
+Liefere so viele passende, reale Orte wie du sicher belegen kannst (bis zu ${CANDIDATES_PER_CALL}), sonst weniger.`;
 
   const tools: Anthropic.Messages.ToolUnion[] = [
-    { type: "web_search_20260209", name: "web_search", max_uses: 5 },
+    { type: "web_search_20260209", name: "web_search", max_uses: MAX_WEB_SEARCHES },
   ];
-  const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: prompt }];
+  const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: userPrompt }];
 
-  let response = await client.messages.create({
+  const request = {
     model: AI_MODEL,
-    max_tokens: 2500,
+    max_tokens: 3000,
+    system: [
+      { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
+    ],
     tools,
     messages,
-  });
-  // Server-Tool-Schleife (pause_turn) fortsetzen
+  };
+
+  let response = await client.messages.create(request);
+  // Server-Tool-Schleife (pause_turn) fortsetzen – kurz halten.
   let guard = 0;
-  while (response.stop_reason === "pause_turn" && guard < 4) {
+  while (response.stop_reason === "pause_turn" && guard < MAX_PAUSE_TURNS) {
     messages.push({ role: "assistant", content: response.content });
-    response = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 2500,
-      tools,
-      messages,
-    });
+    response = await client.messages.create(request);
     guard += 1;
   }
 
@@ -126,19 +175,23 @@ Antworte am Ende mit GENAU einem JSON-Objekt in einem \`\`\`json-Block mit den F
     .map((b) => b.text)
     .join("\n");
   const parsed = extractJson(text);
-  if (!parsed || typeof parsed.name !== "string" || !parsed.name.trim()) return null;
+  if (!parsed) return [];
 
-  const name = String(parsed.name).trim();
-  const pl = Number(parsed.priceLevel);
-  return {
-    name,
-    note: typeof parsed.note === "string" ? parsed.note.trim() : "",
-    priceLevel: Number.isInteger(pl) && pl >= 1 && pl <= 4 ? pl : null,
-    address: typeof parsed.address === "string" && parsed.address.trim() ? parsed.address.trim() : null,
-    sourceUrl: typeof parsed.sourceUrl === "string" ? parsed.sourceUrl.trim() : "",
-    sourceTitle: typeof parsed.sourceTitle === "string" ? parsed.sourceTitle.trim() : "",
-    confidence:
-      parsed.confidence === "hoch" || parsed.confidence === "mittel" ? parsed.confidence : "niedrig",
-    mapsUrl: mapsUrl(name, input.locality),
-  };
+  const rawList = Array.isArray(parsed.candidates)
+    ? parsed.candidates
+    : parsed.name // Fallback: Modell gab ein einzelnes Objekt zurück
+      ? [parsed]
+      : [];
+  const exclude = new Set(input.excludeNames.map((n) => n.toLowerCase()));
+  const seen = new Set<string>();
+  const out: PlaceCandidate[] = [];
+  for (const raw of rawList) {
+    const c = normalizeCandidate(raw, input.locality);
+    if (!c) continue;
+    const key = c.name.toLowerCase();
+    if (exclude.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
 }

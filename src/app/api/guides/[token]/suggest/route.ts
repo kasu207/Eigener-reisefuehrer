@@ -5,7 +5,12 @@ import { rateLimit } from "@/lib/rate-limit";
 import { AREA_KEYS, areaDefaults, placeMatchesArea, REGION_WIDE_KEY } from "@/lib/areas";
 import { questionnaireSchema, INTEREST_LABELS } from "@/lib/questionnaire";
 import { guideContentSchema } from "@/lib/guide-content";
-import { researchPlace } from "@/lib/ai/research-place";
+import { researchPlaceCandidates } from "@/lib/ai/research-place";
+import {
+  researchCacheKey,
+  takeCachedCandidate,
+  putCachedCandidates,
+} from "@/lib/ai/research-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -74,23 +79,37 @@ export async function POST(
   }
 
   const def = areaDefaults(area);
+  const excludeNames = [...exclude];
+
+  // 1) Zuerst aus dem Vorrats-Cache bedienen (keine Kosten): frühere Recherche
+  //    hat mehrere Kandidaten geliefert – Folge-Klicks nutzen die auf.
+  const cacheKey = researchCacheKey(region.id, locality, area);
+  const cached = takeCachedCandidate(cacheKey, excludeNames);
+  if (cached) {
+    return NextResponse.json({ ok: true, candidate: cached, area, locality, cached: true });
+  }
+
+  // 2) Cache leer -> EINE Recherche, die gleich mehrere Kandidaten holt;
+  //    einen zurückgeben, den Rest für spätere Klicks cachen.
   try {
-    const candidate = await researchPlace({
+    const candidates = await researchPlaceCandidates({
       regionName: region.name,
       locality,
       areaLabel: def.label,
       interests: q.interests.map((i) => INTEREST_LABELS[i.key]),
       priceLevelMax: q.priceLevel,
       diets: q.diets,
-      excludeNames: [...exclude],
+      excludeNames,
     });
-    if (!candidate) {
+    if (candidates.length === 0) {
       return NextResponse.json(
         { error: "Kein passender neuer Ort gefunden. Bitte erneut versuchen." },
         { status: 404 }
       );
     }
-    return NextResponse.json({ ok: true, candidate, area, locality });
+    const [first, ...rest] = candidates;
+    putCachedCandidates(cacheKey, rest);
+    return NextResponse.json({ ok: true, candidate: first, area, locality });
   } catch (e) {
     console.error("[suggest] Recherche fehlgeschlagen:", e);
     return NextResponse.json({ error: "Recherche fehlgeschlagen." }, { status: 502 });
