@@ -1,6 +1,3 @@
-import { PDFParse } from "pdf-parse";
-import JSZip from "jszip";
-
 /**
  * Text-Extraktion aus Buch-Dateien für die Wissensbibliothek.
  *
@@ -8,6 +5,10 @@ import JSZip from "jszip";
  * Claudes PDF-Schnittstelle ist auf 32 MB / 100 Seiten begrenzt. Wir lesen den
  * Text daher lokal aus (Bilder werden ignoriert) und geben nur den Text an die
  * KI weiter – das umgeht alle Größenlimits und senkt die Kosten deutlich.
+ *
+ * Die Format-Bibliotheken (pdf-parse, jszip) werden bewusst NUR im jeweiligen
+ * Format-Zweig dynamisch geladen. So kann z. B. ein EPUB-Upload nie an einem
+ * Problem der PDF-Bibliothek scheitern.
  */
 
 export interface ExtractResult {
@@ -28,6 +29,7 @@ function stripHtml(html: string): string {
 }
 
 async function extractPdf(buffer: Buffer): Promise<string> {
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
     const result = await parser.getText();
@@ -38,10 +40,12 @@ async function extractPdf(buffer: Buffer): Promise<string> {
 }
 
 async function extractEpub(buffer: Buffer): Promise<string> {
+  const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(buffer);
-  // Alle (X)HTML-Kapitel einlesen, nach Dateinamen sortiert (grobe Lesereihenfolge)
+  // Alle (X)HTML-Kapitel einlesen, nach Dateinamen sortiert (grobe Lesereihenfolge).
+  // Bilder/Fonts werden nie entpackt – nur die Textdateien.
   const entries = Object.values(zip.files)
-    .filter((f) => !f.dir && /\.x?html?$/i.test(f.name))
+    .filter((f) => !f.dir && /\.(x?html?|htm)$/i.test(f.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   const parts: string[] = [];
   for (const entry of entries) {
@@ -55,7 +59,7 @@ async function extractEpub(buffer: Buffer): Promise<string> {
 /**
  * Extrahiert reinen Text aus einer hochgeladenen Datei (PDF, EPUB, TXT, MD).
  * Wirft einen Fehler mit klarer Meldung, wenn das Format nicht unterstützt wird
- * oder kein Text gefunden wurde (z. B. reines Scan-PDF ohne Textebene).
+ * oder kein Text gefunden wurde (z. B. reines Scan-PDF oder DRM-geschütztes EPUB).
  */
 export async function extractTextFromFile(file: File): Promise<ExtractResult> {
   const name = file.name.toLowerCase();
@@ -81,12 +85,12 @@ export async function extractTextFromFile(file: File): Promise<ExtractResult> {
     kind = "text";
     text = buffer.toString("utf8").trim();
   } else {
-    throw new Error("Nicht unterstütztes Format. Erlaubt: PDF, EPUB, TXT, MD.");
+    throw new Error(`Nicht unterstütztes Format (${file.type || name}). Erlaubt: PDF, EPUB, TXT, MD.`);
   }
 
   if (text.length < 100) {
     throw new Error(
-      "Kaum Text gefunden. Bei reinen Scan-PDFs (nur Bilder) fehlt die Textebene – bitte eine Version mit Text verwenden."
+      "Kaum lesbarer Text gefunden. Mögliche Gründe: reines Scan-PDF ohne Textebene oder ein DRM-/kopiergeschütztes EPUB. Bitte eine Version mit auslesbarem Text verwenden."
     );
   }
   return { text, kind };

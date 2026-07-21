@@ -334,43 +334,52 @@ const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
 
 /** Buch/Reiseführer als Datei hochladen (PDF, EPUB, TXT oder Markdown). */
 export async function uploadKnowledgeFile(fd: FormData) {
-  const file = fd.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    redirect("/admin/knowledge?error=" + encodeURIComponent("Keine Datei ausgewählt."));
-  }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    redirect("/admin/knowledge?error=" + encodeURIComponent("Datei zu groß (max. 120 MB)."));
-  }
-
-  let text: string;
+  let successTitle = "";
   try {
+    const file = fd.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      throw new Error("Keine Datei ausgewählt.");
+    }
+    console.log(
+      `[upload] Start: name=${file.name} size=${(file.size / 1_048_576).toFixed(1)}MB type=${file.type || "?"}`
+    );
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new Error("Datei zu groß (max. 120 MB).");
+    }
+    const regionId = str(fd, "regionId");
+    if (!regionId) throw new Error("Keine Region gewählt.");
+
     // Text lokal extrahieren (Bilder werden ignoriert); nur der Text wird
     // gespeichert und später an die KI gegeben.
     const { extractTextFromFile } = await import("@/lib/knowledge/extract-text");
-    ({ text } = await extractTextFromFile(file));
+    const { text, kind } = await extractTextFromFile(file);
+    console.log(`[upload] Extrahiert: kind=${kind} textLen=${text.length}`);
+
+    successTitle = str(fd, "title") || file.name;
+    await prisma.knowledgeDocument.create({
+      data: {
+        regionId,
+        kind: str(fd, "kind") === "guidebook" ? "guidebook" : "book",
+        title: successTitle,
+        fileName: file.name,
+        // Als reiner Text ablegen -> Worker nutzt den analyzeText-Pfad
+        mimeType: "text/plain",
+        fileData: Buffer.from(text, "utf8"),
+        status: "uploaded",
+        moderationStatus: "approved", // Redaktions-Upload ist direkt freigegeben
+      },
+    });
+    console.log(`[upload] Gespeichert: "${successTitle}"`);
   } catch (e) {
     // Echte Ursache in die Server-Logs schreiben und dem Nutzer lesbar zeigen,
     // statt der generischen Next-Fehlerseite.
-    console.error("[upload] Text-Extraktion fehlgeschlagen:", e);
-    const msg = e instanceof Error ? e.message : "Datei konnte nicht gelesen werden.";
+    console.error("[upload] Fehlgeschlagen:", e);
+    const msg = e instanceof Error ? e.message : "Upload konnte nicht verarbeitet werden.";
     redirect("/admin/knowledge?error=" + encodeURIComponent(msg));
   }
 
-  await prisma.knowledgeDocument.create({
-    data: {
-      regionId: str(fd, "regionId"),
-      kind: str(fd, "kind") === "guidebook" ? "guidebook" : "book",
-      title: str(fd, "title") || file.name,
-      fileName: file.name,
-      // Als reiner Text ablegen -> Worker nutzt den analyzeText-Pfad
-      mimeType: "text/plain",
-      fileData: Buffer.from(text, "utf8"),
-      status: "uploaded",
-      moderationStatus: "approved", // Redaktions-Upload ist direkt freigegeben
-    },
-  });
   revalidatePath("/admin/knowledge");
-  redirect("/admin/knowledge?ok=" + encodeURIComponent(`„${str(fd, "title") || file.name}" hochgeladen – Text extrahiert.`));
+  redirect("/admin/knowledge?ok=" + encodeURIComponent(`„${successTitle}" hochgeladen – Text extrahiert.`));
 }
 
 /** Blog/Artikel per URL verlinken. */
