@@ -95,7 +95,10 @@ async function callClaude<S extends z.ZodType>(
   const response = await client.messages.parse({
     model: MODEL,
     max_tokens: 16000,
-    system: SYSTEM_PROMPT,
+    // Prompt-Caching: Der stabile Systemprompt wird pro Guide über viele
+    // Kapitel-Aufrufe wiederverwendet – als Cache markiert spart das die
+    // Eingabe-Tokens (Cache-Reads kosten ~1/10). Senkt die API-Kosten pro Buch.
+    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userPrompt }],
     output_config: { format: zodOutputFormat(schema) },
   });
