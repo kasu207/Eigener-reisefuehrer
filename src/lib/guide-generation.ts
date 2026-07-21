@@ -185,18 +185,31 @@ async function prepareGuideData(
     practical: 8,
   };
 
+  type PlaceWithSources = Place & { sources: Source[] };
+  const localityOf = (p: PlaceWithSources) => (p.locality?.trim() ? p.locality.trim() : "");
+
   // Alle ausgewählten ortsgebundenen Einträge (Orte + Restaurants/Bars)
   const selectedTownPlaceIds = new Set([...selection.placeIds, ...selection.restaurantIds]);
-  const townScopedPlaces = places.filter(
+  const townScopedAll = places.filter(
     (p) => selectedTownPlaceIds.has(p.id) && p.type !== "practical"
   );
+
+  // Orte, die ein eigenes Kapitel bekommen (Einträge mit gesetzter Stadt).
+  const chapterLocalities = new Set(
+    townScopedAll.map(localityOf).filter(Boolean).map((l) => l.toLowerCase())
+  );
+  // Überblicks-Einträge (ohne Stadt, z. B. ein "Dorf"-Eintrag "Varenna") weglassen,
+  // wenn ihr Name einem Ort mit eigenem Kapitel entspricht – sonst würde derselbe
+  // Ort doppelt beschrieben (einmal als Kapitel, einmal als Kurzporträt in
+  // "Rund um den See").
+  const townScopedPlaces = townScopedAll.filter(
+    (p) => localityOf(p) || !chapterLocalities.has(p.name.trim().toLowerCase())
+  );
+
   // Praktisches nach ortsgebunden vs. regionsweit trennen
   const practicalPlaces = selection.practicalIds
     .map((id) => placeById.get(id))
     .filter((p): p is NonNullable<typeof p> => Boolean(p));
-
-  type PlaceWithSources = Place & { sources: Source[] };
-  const localityOf = (p: PlaceWithSources) => (p.locality?.trim() ? p.locality.trim() : "");
 
   // Ort-Kapitel gruppieren
   const townGroups = new Map<string, PlaceWithSources[]>();
