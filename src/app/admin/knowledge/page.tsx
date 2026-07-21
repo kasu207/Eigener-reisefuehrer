@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import FileField from "@/components/admin/FileField";
 import {
   uploadKnowledgeFile,
   addKnowledgeUrl,
@@ -103,7 +104,7 @@ export default async function KnowledgePage() {
             <option value="book">Buch</option>
           </select>
           <input name="title" placeholder="Titel (leer = Dateiname)" className={inputCls} />
-          <input type="file" name="file" accept=".pdf,.epub,.txt,.md,application/pdf,application/epub+zip,text/plain,text/markdown" className={inputCls} required />
+          <FileField name="file" accept=".pdf,.epub,.txt,.md" required />
           <p className="text-xs text-neutral-500">
             PDF/EPUB/TXT/MD, max. 120 MB. Der Text wird beim Upload lokal
             extrahiert (Bilder werden ignoriert) – große Bücher sind also kein
