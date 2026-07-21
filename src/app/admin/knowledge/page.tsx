@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
-import FileField from "@/components/admin/FileField";
+import KnowledgeUpload from "@/components/admin/KnowledgeUpload";
 import {
-  uploadKnowledgeFile,
   addKnowledgeUrl,
   deleteKnowledgeDocument,
   reanalyzeKnowledgeDocument,
@@ -104,30 +103,7 @@ export default async function KnowledgePage({
 
       {/* Neue Quellen anlegen */}
       <section className="grid gap-6 md:grid-cols-2">
-        <form
-          action={uploadKnowledgeFile}
-          className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-4 text-sm"
-        >
-          <h3 className="font-serif text-lg">Buch / Reiseführer hochladen</h3>
-          <select name="regionId" className={inputCls}>
-            {regions.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-          <select name="kind" className={inputCls}>
-            <option value="guidebook">Reiseführer</option>
-            <option value="book">Buch</option>
-          </select>
-          <input name="title" placeholder="Titel (leer = Dateiname)" className={inputCls} />
-          <FileField name="file" accept=".pdf,.epub,.txt,.md" required />
-          <p className="text-xs text-neutral-500">
-            PDF/EPUB/TXT/MD, max. 120 MB. Der Text wird beim Upload lokal
-            extrahiert (Bilder werden ignoriert) – große Bücher sind also kein
-            Problem. Nur Quellen verwenden, deren Nutzung als Recherchegrundlage
-            zulässig ist – die KI paraphrasiert, kopiert aber nie wörtlich.
-          </p>
-          <button className="rounded bg-(--color-ink) px-4 py-2 text-white">Hochladen</button>
-        </form>
+        <KnowledgeUpload regions={regions.map((r) => ({ id: r.id, name: r.name }))} />
 
         <form
           action={addKnowledgeUrl}
