@@ -174,6 +174,29 @@ describe("selectContent", () => {
     expect(s1.placeIds[0]).toBe("beach");
   });
 
+  it("nimmt Must-See-Orte immer auf, auch wenn sie sonst nicht gewählt würden", () => {
+    const q = makeQuestionnaire();
+    // Ein unattraktiver Ort ohne Tags, der normal nicht bevorzugt würde
+    const mustSee = makePlace({ id: "must", type: "sight", tags: [], qualityScore: 1, mustSee: true });
+    const restMust = makePlace({
+      id: "rmust",
+      type: "restaurant",
+      priceLevel: 2,
+      qualityScore: 1,
+      mustSee: true,
+    });
+    const s = selectContent([mustSee, restMust], [], q);
+    expect(s.placeIds).toContain("must");
+    expect(s.restaurantIds).toContain("rmust");
+  });
+
+  it("erzeugt keine Dubletten bei Must-See, die ohnehin gewählt würden", () => {
+    const q = makeQuestionnaire();
+    const p = makePlace({ id: "p", type: "sight", tags: ["kultur"], qualityScore: 5, mustSee: true });
+    const s = selectContent([p], [], q);
+    expect(s.placeIds.filter((id) => id === "p")).toHaveLength(1);
+  });
+
   it("trennt Restaurants, Orte und Praktisches", () => {
     const q = makeQuestionnaire();
     const places = [

@@ -145,6 +145,7 @@ async function prepareGuideData(
     access: p.access,
     dietaryOptions: p.dietaryOptions,
     qualityScore: p.qualityScore,
+    mustSee: p.mustSee,
   }));
   const selectableHikes: SelectableHike[] = hikes.map((h) => ({
     id: h.id,
@@ -266,21 +267,33 @@ async function prepareGuideData(
     });
   }
 
-  // "Rund um eure Unterkunft": Liegt die Unterkunft in einem Ort OHNE eigenes
-  // Kapitel (z. B. Torno), ergänzen wir eine Sektion mit den nächstgelegenen
-  // geprüften Orten. Additiv und ohne Dubletten – es werden nur Orte
-  // aufgenommen, die nicht ohnehin schon in einem Ort-Kapitel erscheinen.
-  const acc = q.accommodation;
-  const accLocalityLower = (acc.label ?? "").trim().toLowerCase();
-  const hasOwnTownChapter = [...townGroups.keys()].some(
-    (t) => t.toLowerCase() === accLocalityLower
-  );
-  if (acc.lat != null && acc.lng != null && accLocalityLower && !hasOwnTownChapter) {
-    const selectableById = new Map(selectablePlaces.map((sp) => [sp.id, sp]));
-    const alreadyShown = new Set<string>([...selectedTownPlaceIds, ...selection.practicalIds]);
+  // "Rund um <Anker>": Für die Unterkunft und jeden weiteren angegebenen
+  // Anker-Ort (zusätzliche Unterkünfte / eigene Must-Sees), der in einem Ort
+  // OHNE eigenes Kapitel liegt (z. B. Torno), ergänzen wir eine Sektion mit den
+  // nächstgelegenen geprüften Orten. Additiv und ohne Dubletten – Orte, die
+  // schon in einem Ort-Kapitel oder einer früheren Anker-Sektion erscheinen,
+  // werden nicht erneut aufgenommen.
+  const selectableById = new Map(selectablePlaces.map((sp) => [sp.id, sp]));
+  const alreadyShown = new Set<string>([...selectedTownPlaceIds, ...selection.practicalIds]);
+  const townKeysLower = [...townGroups.keys()].map((t) => t.toLowerCase());
+
+  // Unterkunft zuerst, dann weitere Anker – Reihenfolge bestimmt die Kapitel
+  const anchorPoints = [q.accommodation, ...(q.anchors ?? [])];
+  const seenAnchorLabels = new Set<string>();
+  const anchorJobs: ChapterJob[] = [];
+
+  for (const anchor of anchorPoints) {
+    const label = (anchor.label ?? "").trim();
+    const labelLower = label.toLowerCase();
+    if (!label || anchor.lat == null || anchor.lng == null) continue;
+    if (seenAnchorLabels.has(labelLower)) continue;
+    seenAnchorLabels.add(labelLower);
+    // Hat der Anker-Ort ein eigenes Kapitel, ist er bereits abgedeckt
+    if (townKeysLower.includes(labelLower)) continue;
+
     const nearby = places
       .filter((p) => !alreadyShown.has(p.id) && p.type !== "practical")
-      .map((p) => ({ p, d: haversineKm(acc.lat!, acc.lng!, p.lat, p.lng) }))
+      .map((p) => ({ p, d: haversineKm(anchor.lat!, anchor.lng!, p.lat, p.lng) }))
       .filter((x) => {
         const sp = selectableById.get(x.p.id);
         return x.d <= 15 && sp != null && placePassesHardFilters(sp, q);
@@ -289,21 +302,24 @@ async function prepareGuideData(
       .slice(0, 8)
       .map((x) => x.p);
 
-    if (nearby.length > 0) {
-      // Ids in die Auswahl aufnehmen, damit die Faktentreue-Prüfung greift
-      for (const p of nearby) {
-        if (p.type === "restaurant" || p.type === "bar") selection.restaurantIds.push(p.id);
-        else selection.placeIds.push(p.id);
-      }
-      jobs.unshift({
-        key: "near-accommodation",
-        kind: "places",
-        workingTitle: `Rund um eure Unterkunft in ${acc.label}`,
-        instruction: `Die Reisenden übernachten in ${acc.label}. Für diesen Ort gibt es kein eigenes Kapitel – stelle hier die nächstgelegenen lohnenden Ziele als schnelle Orientierung vor (je 3-5 Sätze): was sich in kurzer Distanz anbietet und warum es sich lohnt. Mache neugierig auf die Umgebung der Unterkunft.`,
-        entries: nearby.map((p) => toEntryContext(p, allChunks)),
-      });
+    if (nearby.length === 0) continue;
+
+    for (const p of nearby) {
+      alreadyShown.add(p.id); // gegen Dubletten in weiteren Anker-Sektionen
+      if (p.type === "restaurant" || p.type === "bar") selection.restaurantIds.push(p.id);
+      else selection.placeIds.push(p.id);
     }
+    anchorJobs.push({
+      key: `near-${slug(label)}`,
+      kind: "places",
+      workingTitle: `Rund um ${label}`,
+      instruction: `Die Reisenden interessieren sich für ${label} (Unterkunft oder Wunsch-Ort). Für diesen Ort gibt es kein eigenes Kapitel – stelle hier die nächstgelegenen lohnenden Ziele als schnelle Orientierung vor (je 3-5 Sätze): was sich in kurzer Distanz anbietet und warum es sich lohnt. Mache neugierig auf die Umgebung.`,
+      entries: nearby.map((p) => toEntryContext(p, allChunks)),
+    });
   }
+
+  // Anker-Sektionen an den Anfang stellen (direkt relevant für die Reisenden)
+  jobs.unshift(...anchorJobs);
 
   const adjustmentContext = describeAdjustments(adjustments);
   const libraryContext =

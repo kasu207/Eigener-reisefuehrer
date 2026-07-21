@@ -110,6 +110,13 @@ export default function PlaceForm({
         <input type="checkbox" name="childFriendly" defaultChecked={place?.childFriendly ?? true} />
         kindertauglich
       </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="mustSee" defaultChecked={place?.mustSee ?? false} />
+        <span>
+          <strong>Must-See</strong> – Pflicht-Highlight, erscheint immer im Guide
+          (unabhängig vom Matching)
+        </span>
+      </label>
       <div>
         <label className={labelCls}>Redaktionsnotizen (interner Kontext für die KI)</label>
         <textarea name="editorNotes" defaultValue={place?.editorNotes} className={inputCls} rows={3} />

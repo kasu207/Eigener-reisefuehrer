@@ -37,6 +37,11 @@ export default async function PlacesPage() {
                 <Link href={`/admin/places/${p.id}`} className="text-(--color-accent) underline">
                   {p.name}
                 </Link>
+                {p.mustSee && (
+                  <span className="ml-2 align-middle text-amber-500" title="Must-See (Pflicht-Highlight)">
+                    ★
+                  </span>
+                )}
               </td>
               <td className="py-2 pr-4">{p.type}</td>
               <td className="py-2 pr-4">{p.region.name}</td>

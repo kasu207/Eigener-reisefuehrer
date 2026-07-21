@@ -61,6 +61,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Weitere Anker-Orte (zusätzliche Unterkünfte / Must-Sees) ebenfalls geocodieren
+  for (const anchor of questionnaire.anchors ?? []) {
+    if (anchor.label && (anchor.lat == null || anchor.lng == null)) {
+      const coords = await geocodePlace({
+        label: anchor.label,
+        regionName: region.name,
+        country: region.country,
+        centerLat: region.centerLat,
+        centerLng: region.centerLng,
+      });
+      if (coords) {
+        anchor.lat = coords.lat;
+        anchor.lng = coords.lng;
+      }
+    }
+  }
+
   const request = await prisma.guideRequest.create({
     data: {
       email: questionnaire.email,

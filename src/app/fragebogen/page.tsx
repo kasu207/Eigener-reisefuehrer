@@ -15,6 +15,7 @@ interface FormState {
   dateFrom: string;
   dateTo: string;
   accommodation: string;
+  anchors: string[];
   mobility: ("car" | "public" | "foot")[];
   adults: number;
   children: { ageGroup: "0-3" | "4-9" | "10-14" | "15-17" }[];
@@ -38,6 +39,7 @@ const initialState: FormState = {
   dateFrom: "",
   dateTo: "",
   accommodation: "",
+  anchors: [],
   mobility: ["car", "public"],
   adults: 2,
   children: [],
@@ -148,6 +150,10 @@ export default function FragebogenPage() {
         dateFrom: form.dateFrom,
         dateTo: form.dateTo,
         accommodation: { label: form.accommodation, lat: null, lng: null },
+        anchors: form.anchors
+          .map((label) => label.trim())
+          .filter(Boolean)
+          .map((label) => ({ label, lat: null, lng: null })),
         mobility: form.mobility,
         adults: Math.min(20, Math.max(1, form.adults || 1)),
         children: form.children,
@@ -253,6 +259,46 @@ export default function FragebogenPage() {
                 value={form.accommodation}
                 onChange={(e) => set("accommodation", e.target.value)}
               />
+            </Field>
+            <Field label="Weitere Wunsch-Orte (optional): zusätzliche Unterkünfte oder Must-Sees">
+              <div className="space-y-2">
+                {form.anchors.map((anchor, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      className={inputCls}
+                      placeholder="z. B. Torno, Bellagio, Villa Carlotta"
+                      value={anchor}
+                      onChange={(e) => {
+                        const anchors = [...form.anchors];
+                        anchors[i] = e.target.value;
+                        set("anchors", anchors);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => set("anchors", form.anchors.filter((_, j) => j !== i))}
+                      className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-sm text-neutral-500 hover:border-neutral-500"
+                      aria-label="entfernen"
+                    >
+                      −
+                    </button>
+                  </div>
+                ))}
+                {form.anchors.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={() => set("anchors", [...form.anchors, ""])}
+                    className="text-sm text-(--color-accent) underline"
+                  >
+                    + Ort hinzufügen
+                  </button>
+                )}
+                <p className="text-xs text-neutral-500">
+                  Um jeden dieser Orte herum ergänzen wir passende Tipps in der
+                  Nähe – ideal, wenn ihr an mehreren Orten übernachtet oder etwas
+                  Bestimmtes sehen wollt.
+                </p>
+              </div>
             </Field>
             <Field label="Wie seid ihr vor Ort unterwegs? (Mehrfachauswahl)">
               <div className="flex flex-wrap gap-2">

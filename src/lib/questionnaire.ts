@@ -35,6 +35,20 @@ export const questionnaireSchema = z.object({
     lat: z.number().min(-90).max(90).nullable().optional(),
     lng: z.number().min(-180).max(180).nullable().optional(),
   }),
+  // Weitere Anker-Orte, um die herum explizit Inhalte entstehen sollen:
+  // zusätzliche Unterkünfte oder selbst gewählte Must-See-Orte. Jeder Anker
+  // wird geocodiert und erhält (falls kein eigenes Ort-Kapitel existiert) eine
+  // "Rund um ..."-Sektion mit den nächstgelegenen geprüften Orten.
+  anchors: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(200),
+        lat: z.number().min(-90).max(90).nullable().optional(),
+        lng: z.number().min(-180).max(180).nullable().optional(),
+      })
+    )
+    .max(10)
+    .default([]),
   // Mehrere Transportmittel möglich (nicht exklusiv); der Guide fokussiert
   // sich nicht auf ein Verkehrsmittel, sondern nennt jeweils die Optionen.
   mobility: z.array(z.enum(["car", "public", "foot"])).min(1).default(["car", "public"]),

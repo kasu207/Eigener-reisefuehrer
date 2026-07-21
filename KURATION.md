@@ -76,6 +76,7 @@ Felder:
 | **Öffnungszeiten-Hinweise** | Freitext, erscheint in der Fakten-Box |
 | **Erreichbarkeit** | Auto / ÖPNV / zu Fuß |
 | **Qualität** | 1–5 – höhere Werte werden bevorzugt ausgewählt |
+| **Must-See** | Pflicht-Highlight: Ort erscheint **immer** im Guide, unabhängig vom Matching (respektiert nur harte Filter wie Ernährung/Kindertauglichkeit). Sparsam einsetzen. |
 | **Ernährung** | `vegetarian, vegan, glutenfree` (nur Gastro, für harte Filter) |
 | **Redaktionsnotizen** | Interner Kontext **für die KI** – hier ruhig ausführlich schreiben, was den Ort ausmacht. Die KI formuliert daraus eigenständig. |
 | **Prüfstatus** | Erst `Geprüft`, wenn fertig |

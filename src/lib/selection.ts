@@ -23,6 +23,8 @@ export interface SelectablePlace {
   access: "car" | "public" | "foot";
   dietaryOptions: string[];
   qualityScore: number;
+  /** Pflicht-Highlight: wird immer aufgenommen, unabhängig von Zielmengen. */
+  mustSee?: boolean;
 }
 
 export interface SelectableHike {
@@ -166,13 +168,28 @@ export function scorePlace(
     score += 3;
   }
 
-  if (q.accommodation.lat != null && q.accommodation.lng != null) {
-    const dist = haversineKm(q.accommodation.lat, q.accommodation.lng, p.lat, p.lng);
-    if (dist < 10) score += 2;
-    else if (dist < 25) score += 1;
+  const distP = nearestAnchorKm(q, p.lat, p.lng);
+  if (distP != null) {
+    if (distP < 10) score += 2;
+    else if (distP < 25) score += 1;
   }
 
   return score;
+}
+
+/**
+ * Kürzeste Distanz zu einem der Anker-Orte (Unterkunft + weitere Anker).
+ * Gibt null zurück, wenn keine Koordinaten vorliegen.
+ */
+export function nearestAnchorKm(q: Questionnaire, lat: number, lng: number): number | null {
+  const anchors = [q.accommodation, ...(q.anchors ?? [])];
+  let best: number | null = null;
+  for (const a of anchors) {
+    if (a.lat == null || a.lng == null) continue;
+    const d = haversineKm(a.lat, a.lng, lat, lng);
+    if (best == null || d < best) best = d;
+  }
+  return best;
 }
 
 export function scoreHike(
@@ -184,10 +201,10 @@ export function scoreHike(
   score += (interestWeight(q, "wandern") + (mods.interestBoosts["wandern"] ?? 0)) * 2;
   const fitnessMatch: Record<string, string> = { niedrig: "easy", mittel: "medium", hoch: "hard" };
   if (fitnessMatch[q.fitnessLevel] === h.difficulty) score += 2;
-  if (q.accommodation.lat != null && q.accommodation.lng != null) {
-    const dist = haversineKm(q.accommodation.lat, q.accommodation.lng, h.startLat, h.startLng);
-    if (dist < 15) score += 2;
-    else if (dist < 30) score += 1;
+  const distH = nearestAnchorKm(q, h.startLat, h.startLng);
+  if (distH != null) {
+    if (distH < 15) score += 2;
+    else if (distH < 30) score += 1;
   }
   return score;
 }
@@ -308,17 +325,45 @@ export function selectContent(
 
   const practicalIds = places.filter((p) => p.type === "practical").map((p) => p.id);
 
+  // Pflicht-Highlights (must-see) erscheinen IMMER, unabhängig von den
+  // Zielmengen – aber weiterhin nur, wenn sie die harten Filter bestehen
+  // (Kindertauglichkeit, Ernährung, Preis). So bleibt der Guide stimmig.
+  const mustSeePlaceIds = places
+    .filter(
+      (p) =>
+        p.mustSee &&
+        ["village", "sight", "viewpoint", "beach", "hotel", "event"].includes(p.type) &&
+        placePassesHardFilters(p, q)
+    )
+    .map((p) => p.id);
+  const mustSeeRestaurantIds = places
+    .filter(
+      (p) =>
+        p.mustSee &&
+        (p.type === "restaurant" || p.type === "bar") &&
+        restaurantPassesHardFilters(p, q)
+    )
+    .map((p) => p.id);
+
+  const uniq = (ids: string[]) => [...new Set(ids)];
+
   return {
     // placeIds = alles "Ort-gebundene" außer Gastro (Sehenswertes, Hotels, Events)
-    placeIds: [...pickedSights.map((p) => p.id), ...pickedHotels.map((p) => p.id), ...eventIds],
+    placeIds: uniq([
+      ...pickedSights.map((p) => p.id),
+      ...pickedHotels.map((p) => p.id),
+      ...eventIds,
+      ...mustSeePlaceIds,
+    ]),
     hikeIds: pickedHikes.map((h) => h.id),
     // restaurantIds = Gastro (Restaurants aller Preisklassen + Bars)
-    restaurantIds: [
+    restaurantIds: uniq([
       ...pickedFancy.map((p) => p.id),
       ...pickedMid.map((p) => p.id),
       ...pickedBudget.map((p) => p.id),
       ...pickedBars.map((p) => p.id),
-    ],
+      ...mustSeeRestaurantIds,
+    ]),
     practicalIds,
     targets,
     debug: {

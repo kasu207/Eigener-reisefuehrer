@@ -74,6 +74,7 @@ function placeData(fd: FormData) {
     dietaryOptions: list(fd, "dietaryOptions"),
     editorNotes: str(fd, "editorNotes"),
     qualityScore: num(fd, "qualityScore") || 3,
+    mustSee: fd.get("mustSee") === "on",
     status: str(fd, "status") as ContentStatus,
     lastVerifiedAt: str(fd, "status") === "verified" ? new Date() : undefined,
   };

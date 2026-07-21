@@ -213,6 +213,8 @@ model Place {
   dietaryOptions String[]      @map("dietary_options") // vegetarian | vegan | glutenfree
   editorNotes    String        @default("") @map("editor_notes")
   qualityScore   Int           @default(3) @map("quality_score") // 1-5
+  /// Pflicht-Highlight: erscheint immer im Guide, unabhängig vom Matching.
+  mustSee        Boolean       @default(false) @map("must_see")
   status         ContentStatus @default(draft)
   lastVerifiedAt DateTime?     @map("last_verified_at")
   images         Image[]
