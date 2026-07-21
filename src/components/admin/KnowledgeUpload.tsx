@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const inputCls = "w-full rounded border border-neutral-300 px-2 py-1 text-sm";
@@ -15,13 +15,15 @@ export default function KnowledgeUpload({
   regions: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  // Kleine Stücke, damit kein Body-Limit (Proxy/Framework) greift
+  const CHUNK_SIZE = 4 * 1024 * 1024;
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
     const data = new FormData(form);
@@ -34,53 +36,62 @@ export default function KnowledgeUpload({
     setMsg(null);
     setProgress(0);
 
-    // Datei als ROHEN Body senden (kein Multipart), Metadaten als Query-Parameter.
-    // Das umgeht die Größenlimits von Server-Actions und req.formData().
-    const params = new URLSearchParams({
+    const uploadId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    const baseParams = {
+      uploadId,
+      totalChunks: String(totalChunks),
       regionId: String(data.get("regionId") ?? ""),
       kind: String(data.get("kind") ?? "book"),
       title: String(data.get("title") ?? ""),
       filename: file.name,
       type: file.type || "",
-    });
+    };
 
-    // XHR statt fetch, um einen Fortschrittsbalken zu zeigen (große Dateien)
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/admin/knowledge-upload?${params.toString()}`);
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (ev) => {
-      if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100));
-    };
-    xhr.onload = () => {
-      setBusy(false);
-      let body: { ok?: boolean; error?: string; title?: string; textLen?: number } = {};
-      try {
-        body = JSON.parse(xhr.responseText);
-      } catch {
-        /* ignore */
-      }
-      if (xhr.status >= 200 && xhr.status < 300 && body.ok) {
-        setMsg({
-          type: "ok",
-          text: `„${body.title}" hochgeladen – Text extrahiert (${body.textLen?.toLocaleString("de-DE")} Zeichen). Die KI-Analyse läuft im Hintergrund.`,
+    try {
+      for (let i = 0; i < totalChunks; i++) {
+        const blob = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const params = new URLSearchParams({ ...baseParams, chunkIndex: String(i) });
+        const res = await fetch(`/api/admin/knowledge-upload?${params.toString()}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: blob,
         });
-        form.reset();
-        setFileName(null);
-        router.refresh();
-      } else {
-        setMsg({ type: "err", text: body.error ?? `Fehler (HTTP ${xhr.status}).` });
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          partial?: boolean;
+          error?: string;
+          title?: string;
+          textLen?: number;
+        };
+        if (!res.ok || !body.ok) {
+          throw new Error(body.error ?? `Fehler (HTTP ${res.status}).`);
+        }
+        setProgress(Math.round(((i + 1) / totalChunks) * 100));
+
+        // Letzter Chunk -> Server hat verarbeitet und liefert das Ergebnis
+        if (!body.partial) {
+          setMsg({
+            type: "ok",
+            text: `„${body.title}" hochgeladen – Text extrahiert (${body.textLen?.toLocaleString("de-DE")} Zeichen). Die KI-Analyse läuft im Hintergrund.`,
+          });
+          form.reset();
+          setFileName(null);
+          router.refresh();
+        }
       }
-    };
-    xhr.onerror = () => {
+    } catch (err) {
+      setMsg({ type: "err", text: err instanceof Error ? err.message : "Upload fehlgeschlagen." });
+    } finally {
       setBusy(false);
-      setMsg({ type: "err", text: "Netzwerkfehler beim Upload." });
-    };
-    xhr.send(file);
+    }
   }
 
   return (
     <form
-      ref={formRef}
       onSubmit={submit}
       className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-4 text-sm"
     >
