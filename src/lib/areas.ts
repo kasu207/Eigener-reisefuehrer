@@ -53,6 +53,26 @@ export function parseLocalityCounts(raw: unknown): LocalityCounts {
 /** Sammelbegriff für Orte ohne eigene Stadt (regionsweite Highlights). */
 export const REGION_WIDE_KEY = "Rund um den See";
 
+/** Vorgaben zum Anlegen eines neuen Ortes für einen Bereich (Typ + Preisklasse). */
+export function areaDefaults(area: AreaKey): { type: string; priceLevel: number | null; label: string } {
+  switch (area) {
+    case "sights":
+      return { type: "sight", priceLevel: null, label: "Sehenswürdigkeit/Ausblick" };
+    case "bars":
+      return { type: "bar", priceLevel: 2, label: "Bar/Aperitivo-Ort" };
+    case "hotels":
+      return { type: "hotel", priceLevel: 3, label: "Unterkunft/Hotel" };
+    case "foodFancy":
+      return { type: "restaurant", priceLevel: 4, label: "gehobenes Restaurant" };
+    case "foodMid":
+      return { type: "restaurant", priceLevel: 3, label: "Restaurant (Mittelklasse)" };
+    case "foodBudget":
+      return { type: "restaurant", priceLevel: 2, label: "günstiges Restaurant oder Café" };
+    default:
+      return { type: "sight", priceLevel: null, label: "Ort" };
+  }
+}
+
 /**
  * Prüft, ob ein Ort-Eintrag (Typ + Preisniveau) zu einem Bereich gehört.
  * Bildet die Unterabschnitte des Guides ab (Essen nach Preisklasse getrennt).
