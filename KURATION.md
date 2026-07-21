@@ -9,8 +9,26 @@ Inhalten füllst und pflegst. Alles läuft über das **Admin-Interface**.
 Es erscheint eine Passwortabfrage (Basic Auth) – Benutzer und Passwort stehen
 in deiner `.env` (`ADMIN_USER`, `ADMIN_PASSWORD`).
 
-Oben siehst du die Reiter: **Guide-Requests · Orte · Wanderungen · Regionen ·
-Karten-Spots · Wissensbibliothek**.
+Oben siehst du die Reiter: **Guide-Requests · Kuratieren · Orte · Wanderungen ·
+Regionen · Karten-Spots · Wissensbibliothek**.
+
+---
+
+## 0.5 Die „Kuratieren"-Werkstatt (Schnellstart)
+
+Der Reiter **Kuratieren** bündelt alles zum schnellen Nachpflegen:
+
+- **KI-Einstellung:** zeigt das aktive Modell und den Modus. Das Modell setzt
+  du in der `.env` über `ANTHROPIC_MODEL` (Standard `claude-sonnet-4-6` –
+  deutlich günstiger als Opus). Nach Änderung Container neu starten.
+- **KI-Ortsvorschläge:** Ort/Stadt + Typ + Anzahl eingeben → die KI legt
+  **Entwürfe** an (Name, Tags, Redaktionsnotiz). Wichtig: Das sind Vorschläge,
+  **keine** geprüften Fakten. Koordinaten (Regions-Mitte als Platzhalter),
+  Preise und Öffnungszeiten prüfst/ergänzt du, dann auf „Geprüft" stellen.
+- **Reiseführer einlesen:** Link zur Wissensbibliothek (deine gekauften
+  Bücher als PDF hochladen).
+- **Abdeckung je Ort:** Tabelle, die zeigt, wo Inhalte fehlen (rote `0`).
+  So siehst du auf einen Blick, welcher Ort noch dünn ist.
 
 ---
 
@@ -87,7 +105,10 @@ Für eine gute Mischung also: wenige Restaurants mit Preisniveau 4, viele mit
 
 ### Bilder & Quellen (rechts auf der Ort-Seite)
 
-- **Bilder:** Nur mit klarer Lizenz (Wikimedia Commons, Unsplash, Pexels,
+- **Bilder:** Am einfachsten über **„Bilder suchen (Wikimedia Commons)"** auf
+  der Ort-Seite: Begriff eingeben, passendes Bild mit einem Klick
+  **„Übernehmen"** – Lizenz, Urheber und Quelllink werden automatisch
+  übernommen. Alternativ manuell mit klarer Lizenz (Unsplash, Pexels,
   Openverse oder eigene Fotos). Pflichtangaben: Bild-URL, Lizenz, Urheber,
   Quelllink – die Attribution wird im Guide automatisch gerendert.
 - **Quellen:** Recherche-Belege (Blog, Reddit, Portal, eigene Recherche,

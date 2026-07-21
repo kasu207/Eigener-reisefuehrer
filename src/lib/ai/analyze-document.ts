@@ -3,6 +3,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import * as z from "zod/v4";
 import { INTERESTS } from "../questionnaire";
 import { isMock } from "./mock";
+import { AI_MODEL } from "./model";
 
 /**
  * Einlesen und Aufbereiten von Wissensquellen (Bücher, Reiseführer, Blogs)
@@ -11,7 +12,7 @@ import { isMock } from "./mock";
  * vgl. Anforderungsdokument 5.1/10).
  */
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+const MODEL = AI_MODEL;
 const client = new Anthropic({ maxRetries: 3 });
 
 const chunkSchema = z.object({

@@ -30,7 +30,7 @@ services:
       # PDF-Rendering ruft die eigene App container-intern auf
       PDF_INTERNAL_URL: http://localhost:3000
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       AI_MODE: ${AI_MODE:-live}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD in .env setzen}
@@ -56,7 +56,7 @@ services:
       DATABASE_URL: postgresql://reisefuehrer:${POSTGRES_PASSWORD}@db:5432/reisefuehrer
       APP_URL: ${APP_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       AI_MODE: ${AI_MODE:-live}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}

@@ -6,6 +6,7 @@ import type { Questionnaire } from "../questionnaire";
 import { INTEREST_LABELS, tripDays } from "../questionnaire";
 import type { GuideContent, Chapter } from "../guide-content";
 import { isMock, mockPersonalText, mockReason } from "./mock";
+import { AI_MODEL } from "./model";
 
 /**
  * KI-Textgenerierung (Anforderung 4.3).
@@ -15,7 +16,7 @@ import { isMock, mockPersonalText, mockReason } from "./mock";
  * - Retries übernimmt das SDK (Standard: 2, hier 3)
  */
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+const MODEL = AI_MODEL;
 
 const client = new Anthropic({ maxRetries: 3 });
 

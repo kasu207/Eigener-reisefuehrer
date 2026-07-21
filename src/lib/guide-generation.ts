@@ -1,6 +1,12 @@
 import { prisma } from "./db";
 import { questionnaireSchema, type Questionnaire } from "./questionnaire";
-import { selectContent, type SelectablePlace, type SelectableHike } from "./selection";
+import {
+  selectContent,
+  haversineKm,
+  placePassesHardFilters,
+  type SelectablePlace,
+  type SelectableHike,
+} from "./selection";
 import {
   generateChapter,
   generateIntro,
@@ -258,6 +264,45 @@ async function prepareGuideData(
         "Fasse die übergreifenden praktischen Hinweise zusammen (Fähren/ÖPNV, Anreise, regionale Besonderheiten). Nenne die verschiedenen Verkehrsmittel als Optionen, ohne dich auf eines zu versteifen.",
       entries: regionPractical.map((p) => toEntryContext(p, allChunks)),
     });
+  }
+
+  // "Rund um eure Unterkunft": Liegt die Unterkunft in einem Ort OHNE eigenes
+  // Kapitel (z. B. Torno), ergänzen wir eine Sektion mit den nächstgelegenen
+  // geprüften Orten. Additiv und ohne Dubletten – es werden nur Orte
+  // aufgenommen, die nicht ohnehin schon in einem Ort-Kapitel erscheinen.
+  const acc = q.accommodation;
+  const accLocalityLower = (acc.label ?? "").trim().toLowerCase();
+  const hasOwnTownChapter = [...townGroups.keys()].some(
+    (t) => t.toLowerCase() === accLocalityLower
+  );
+  if (acc.lat != null && acc.lng != null && accLocalityLower && !hasOwnTownChapter) {
+    const selectableById = new Map(selectablePlaces.map((sp) => [sp.id, sp]));
+    const alreadyShown = new Set<string>([...selectedTownPlaceIds, ...selection.practicalIds]);
+    const nearby = places
+      .filter((p) => !alreadyShown.has(p.id) && p.type !== "practical")
+      .map((p) => ({ p, d: haversineKm(acc.lat!, acc.lng!, p.lat, p.lng) }))
+      .filter((x) => {
+        const sp = selectableById.get(x.p.id);
+        return x.d <= 15 && sp != null && placePassesHardFilters(sp, q);
+      })
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 8)
+      .map((x) => x.p);
+
+    if (nearby.length > 0) {
+      // Ids in die Auswahl aufnehmen, damit die Faktentreue-Prüfung greift
+      for (const p of nearby) {
+        if (p.type === "restaurant" || p.type === "bar") selection.restaurantIds.push(p.id);
+        else selection.placeIds.push(p.id);
+      }
+      jobs.unshift({
+        key: "near-accommodation",
+        kind: "places",
+        workingTitle: `Rund um eure Unterkunft in ${acc.label}`,
+        instruction: `Die Reisenden übernachten in ${acc.label}. Für diesen Ort gibt es kein eigenes Kapitel – stelle hier die nächstgelegenen lohnenden Ziele als schnelle Orientierung vor (je 3-5 Sätze): was sich in kurzer Distanz anbietet und warum es sich lohnt. Mache neugierig auf die Umgebung der Unterkunft.`,
+        entries: nearby.map((p) => toEntryContext(p, allChunks)),
+      });
+    }
   }
 
   const adjustmentContext = describeAdjustments(adjustments);

@@ -7,6 +7,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <h1 className="font-serif text-2xl">Redaktion</h1>
         <nav className="flex gap-5 text-sm">
           <Link href="/admin" className="hover:text-(--color-accent)">Guide-Requests</Link>
+          <Link href="/admin/kuratieren" className="font-medium text-(--color-accent) hover:underline">Kuratieren</Link>
           <Link href="/admin/places" className="hover:text-(--color-accent)">Orte</Link>
           <Link href="/admin/hikes" className="hover:text-(--color-accent)">Wanderungen</Link>
           <Link href="/admin/regions" className="hover:text-(--color-accent)">Regionen</Link>

@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import {
+  suggestPlaces,
+  UnsafeSuggestionError,
+  type SuggestPlaceType,
+} from "@/lib/ai/suggest-places";
 import type {
   PlaceType,
   Access,
@@ -90,6 +95,63 @@ export async function deletePlace(fd: FormData) {
   await prisma.place.delete({ where: { id: str(fd, "id") } });
   revalidatePath("/admin/places");
   redirect("/admin/places");
+}
+
+/**
+ * KI-Ortsvorschläge (Kuratierungs-Hilfe): erzeugt ENTWÜRFE (status = draft)
+ * rund um einen Ort/Typ. Fakten (Koordinaten, Preise, Öffnungszeiten) müssen
+ * vom Menschen geprüft werden, bevor der Eintrag auf "verified" geht. So
+ * wächst die DB schnell, ohne dass unbestätigte Fakten in den Guide gelangen.
+ */
+export async function generatePlaceDrafts(fd: FormData) {
+  const regionId = str(fd, "regionId");
+  const locality = str(fd, "locality");
+  const type = (str(fd, "type") || "sight") as SuggestPlaceType;
+  const count = Math.max(1, Math.min(15, num(fd, "count") || 5));
+  const extraHint = str(fd, "extraHint");
+
+  const region = await prisma.region.findUnique({ where: { id: regionId } });
+  if (!region) throw new Error("Region nicht gefunden");
+
+  let result;
+  try {
+    result = await suggestPlaces({
+      regionName: region.name,
+      locality,
+      type,
+      count,
+      extraHint,
+    });
+  } catch (e) {
+    if (e instanceof UnsafeSuggestionError) {
+      redirect(`/admin/kuratieren?error=${encodeURIComponent(e.reason)}`);
+    }
+    throw e;
+  }
+
+  let created = 0;
+  for (const s of result.suggestions) {
+    await prisma.place.create({
+      data: {
+        regionId,
+        type: s.type as PlaceType,
+        name: s.name,
+        locality: s.locality || locality,
+        // Platzhalter-Koordinaten (Regions-Mitte) – per Kartenklick korrigieren
+        lat: region.centerLat,
+        lng: region.centerLng,
+        tags: s.tags.map((t) => t.toLowerCase()),
+        priceLevel: s.priceLevel ?? undefined,
+        editorNotes: `[KI-Vorschlag · Sicherheit real: ${s.confidence} · FAKTEN & KOORDINATEN PRÜFEN] ${s.editorNote}`,
+        status: "draft",
+      },
+    });
+    created += 1;
+  }
+
+  revalidatePath("/admin/kuratieren");
+  revalidatePath("/admin/places");
+  redirect(`/admin/kuratieren?created=${created}`);
 }
 
 // ---------- Wanderungen ----------

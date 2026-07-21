@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import PlaceForm from "@/components/admin/PlaceForm";
+import ImageSearch from "@/components/ImageSearch";
 import {
   updatePlace,
   deletePlace,
@@ -56,7 +57,11 @@ export default async function EditPlacePage({ params }: { params: Promise<{ id: 
               </li>
             ))}
           </ul>
-          <form action={addImage} className="mt-3 space-y-2 rounded border border-neutral-200 bg-white p-3">
+          <div className="mt-3">
+            <ImageSearch placeId={place.id} defaultQuery={`${place.name} ${place.locality}`.trim()} />
+          </div>
+          <p className="mt-4 mb-1 text-xs font-medium text-neutral-500">oder manuell hinzufügen</p>
+          <form action={addImage} className="space-y-2 rounded border border-neutral-200 bg-white p-3">
             <input type="hidden" name="placeId" value={place.id} />
             <input name="fileUrl" placeholder="Bild-URL (Wikimedia/Unsplash/Pexels/eigen)" className={inputCls} required />
             <div className="grid grid-cols-2 gap-2">

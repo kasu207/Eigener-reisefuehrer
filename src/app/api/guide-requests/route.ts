@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import { rateLimit } from "@/lib/rate-limit";
 import { createGuideSkeleton } from "@/lib/guide-generation";
+import { geocodePlace } from "@/lib/geocode";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unbekannte Region." }, { status: 400 });
   }
 
+  // Unterkunft geocodieren, falls nur ein Ortsname (ohne Koordinaten) angegeben
+  // wurde. Damit bevorzugt die Auswahl-Engine Orte im Umkreis und es kann ein
+  // "Rund um eure Unterkunft"-Kapitel entstehen (löst z. B. den Torno-Fall).
+  const questionnaire = parsed.data;
+  if (
+    questionnaire.accommodation.label &&
+    (questionnaire.accommodation.lat == null || questionnaire.accommodation.lng == null)
+  ) {
+    const coords = await geocodePlace({
+      label: questionnaire.accommodation.label,
+      regionName: region.name,
+      country: region.country,
+      centerLat: region.centerLat,
+      centerLng: region.centerLng,
+    });
+    if (coords) {
+      questionnaire.accommodation.lat = coords.lat;
+      questionnaire.accommodation.lng = coords.lng;
+    }
+  }
+
   const request = await prisma.guideRequest.create({
     data: {
-      email: parsed.data.email,
-      questionnaire: parsed.data,
+      email: questionnaire.email,
+      questionnaire,
       status: "pending",
     },
   });

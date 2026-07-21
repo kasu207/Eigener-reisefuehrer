@@ -28,7 +28,7 @@ APP_URL=http://49.12.97.244
 # KI: erst mit "mock" testen (kostenlos), dann auf "live" stellen
 AI_MODE=mock
 ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=claude-opus-4-8
+ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # E-Mail-Versand (optional; ohne Key werden Guide-Links nur geloggt)
 RESEND_API_KEY=
