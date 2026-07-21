@@ -103,10 +103,12 @@ export default async function KnowledgePage() {
             <option value="book">Buch</option>
           </select>
           <input name="title" placeholder="Titel (leer = Dateiname)" className={inputCls} />
-          <input type="file" name="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" className={inputCls} required />
+          <input type="file" name="file" accept=".pdf,.epub,.txt,.md,application/pdf,application/epub+zip,text/plain,text/markdown" className={inputCls} required />
           <p className="text-xs text-neutral-500">
-            PDF/TXT/MD, max. 20 MB. Nur Quellen verwenden, deren Nutzung als
-            Recherchegrundlage zulässig ist – die KI paraphrasiert, kopiert aber nie wörtlich.
+            PDF/EPUB/TXT/MD, max. 120 MB. Der Text wird beim Upload lokal
+            extrahiert (Bilder werden ignoriert) – große Bücher sind also kein
+            Problem. Nur Quellen verwenden, deren Nutzung als Recherchegrundlage
+            zulässig ist – die KI paraphrasiert, kopiert aber nie wörtlich.
           </p>
           <button className="rounded bg-(--color-ink) px-4 py-2 text-white">Hochladen</button>
         </form>

@@ -327,28 +327,33 @@ export async function importRedditSources(fd: FormData) {
 
 // ---------- Wissensbibliothek (community-gespeist, kuratiert) ----------
 
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // Claude-PDF-Limit beachten (32 MB Request)
+// Große Bücher erlaubt (PDF/EPUB mit Bildern bis ~120 MB). Wir speichern NICHT
+// die riesige Binärdatei, sondern nur den daraus extrahierten Text – das umgeht
+// Claudes 32-MB/100-Seiten-PDF-Limit und hält die Datenbank schlank.
+const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
 
-/** Buch/Reiseführer als Datei hochladen (PDF oder Text/Markdown). */
+/** Buch/Reiseführer als Datei hochladen (PDF, EPUB, TXT oder Markdown). */
 export async function uploadKnowledgeFile(fd: FormData) {
   const file = fd.get("file");
   if (!(file instanceof File) || file.size === 0) return;
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error("Datei zu groß (max. 20 MB)");
+    throw new Error("Datei zu groß (max. 120 MB)");
   }
-  const allowed = ["application/pdf", "text/plain", "text/markdown"];
-  if (!allowed.includes(file.type)) {
-    throw new Error("Nur PDF-, TXT- oder Markdown-Dateien");
-  }
-  const bytes = Buffer.from(await file.arrayBuffer());
+
+  // Text lokal extrahieren (Bilder werden ignoriert); nur der Text wird
+  // gespeichert und später an die KI gegeben.
+  const { extractTextFromFile } = await import("@/lib/knowledge/extract-text");
+  const { text } = await extractTextFromFile(file);
+
   await prisma.knowledgeDocument.create({
     data: {
       regionId: str(fd, "regionId"),
       kind: str(fd, "kind") === "guidebook" ? "guidebook" : "book",
       title: str(fd, "title") || file.name,
       fileName: file.name,
-      mimeType: file.type,
-      fileData: bytes,
+      // Als reiner Text ablegen -> Worker nutzt den analyzeText-Pfad
+      mimeType: "text/plain",
+      fileData: Buffer.from(text, "utf8"),
       status: "uploaded",
       moderationStatus: "approved", // Redaktions-Upload ist direkt freigegeben
     },

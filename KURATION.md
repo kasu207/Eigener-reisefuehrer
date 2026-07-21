@@ -159,7 +159,10 @@ jedem Guide der Region. Drei Formate:
 
 **Wissensbibliothek.** Hier fütterst du die KI mit Recherchequellen:
 
-- **Buch/Reiseführer hochladen** (PDF/TXT/MD) oder **Blog/Artikel verlinken**.
+- **Buch/Reiseführer hochladen** (PDF, EPUB, TXT, MD – bis 120 MB) oder
+  **Blog/Artikel verlinken**. Der Text wird beim Upload lokal extrahiert
+  (Bilder werden ignoriert), sodass auch große, bebilderte Bücher problemlos
+  gehen. Reine Scan-PDFs ohne Textebene funktionieren nicht.
 - Die KI liest die Quelle ein und legt **paraphrasierte, getaggte Notizen** an
   (nie wörtliche Übernahme). Passende Notizen fließen automatisch als
   Hintergrund in die Guide-Texte ein.
