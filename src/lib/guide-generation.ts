@@ -4,9 +4,18 @@ import {
   selectContent,
   haversineKm,
   placePassesHardFilters,
+  restaurantPassesHardFilters,
+  scorePlace,
   type SelectablePlace,
   type SelectableHike,
 } from "./selection";
+import {
+  parseAreaCounts,
+  parseLocalityCounts,
+  placeMatchesArea,
+  REGION_WIDE_KEY,
+  AREA_KEYS,
+} from "./areas";
 import {
   generateChapter,
   generateIntro,
@@ -27,7 +36,6 @@ import {
   modifiersFromAdjustments,
   describeAdjustments,
 } from "./adjustments";
-import { parseAreaCounts } from "./areas";
 import {
   matchChunksToQuestionnaire,
   chunksForPlaceName,
@@ -227,6 +235,59 @@ async function prepareGuideData(
     } else regionPractical.push(p);
   }
 
+  // Pro-Ort-Feintuning anwenden: je Ort und Bereich zusätzliche geprüfte
+  // Einträge aufnehmen (mehr) bzw. die schwächsten entfernen (weniger).
+  const localityCounts = parseLocalityCounts(request.localityCounts);
+  const selectableById = new Map(selectablePlaces.map((sp) => [sp.id, sp]));
+  const localityKeyOf = (p: PlaceWithSources) => localityOf(p) || REGION_WIDE_KEY;
+  for (const [town, origGroup] of [...townGroups.entries()]) {
+    const counts = localityCounts[town];
+    if (!counts) continue;
+    let group = [...origGroup];
+    const present = new Set(group.map((p) => p.id));
+    for (const area of AREA_KEYS) {
+      const delta = counts[area] ?? 0;
+      if (delta > 0) {
+        const candidates = places
+          .filter((p) => {
+            if (present.has(p.id)) return false;
+            if (localityKeyOf(p) !== town) return false;
+            if (!placeMatchesArea(p.type, p.priceLevel, area)) return false;
+            const sp = selectableById.get(p.id);
+            if (!sp) return false;
+            return p.type === "restaurant" || p.type === "bar"
+              ? restaurantPassesHardFilters(sp, q)
+              : placePassesHardFilters(sp, q);
+          })
+          .map((p) => ({ p, score: scorePlace(selectableById.get(p.id)!, q, mods) }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, delta)
+          .map((x) => x.p);
+        for (const p of candidates) {
+          group.push(p);
+          present.add(p.id);
+          if (p.type === "restaurant" || p.type === "bar") selection.restaurantIds.push(p.id);
+          else selection.placeIds.push(p.id);
+        }
+      } else if (delta < 0) {
+        const removable = group
+          .filter(
+            (p) =>
+              placeMatchesArea(p.type, p.priceLevel, area) &&
+              !p.mustSee &&
+              selectableById.has(p.id)
+          )
+          .map((p) => ({ p, score: scorePlace(selectableById.get(p.id)!, q, mods) }))
+          .sort((a, b) => a.score - b.score)
+          .slice(0, -delta)
+          .map((x) => x.p.id);
+        const removeSet = new Set(removable);
+        group = group.filter((p) => !removeSet.has(p.id));
+      }
+    }
+    townGroups.set(town, group);
+  }
+
   const slug = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "ort";
 
@@ -286,7 +347,6 @@ async function prepareGuideData(
   // nächstgelegenen geprüften Orten. Additiv und ohne Dubletten – Orte, die
   // schon in einem Ort-Kapitel oder einer früheren Anker-Sektion erscheinen,
   // werden nicht erneut aufgenommen.
-  const selectableById = new Map(selectablePlaces.map((sp) => [sp.id, sp]));
   const alreadyShown = new Set<string>([...selectedTownPlaceIds, ...selection.practicalIds]);
   const townKeysLower = [...townGroups.keys()].map((t) => t.toLowerCase());
 

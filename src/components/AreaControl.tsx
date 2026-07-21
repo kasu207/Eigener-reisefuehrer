@@ -10,7 +10,15 @@ import type { AreaKey } from "@/lib/areas";
  * Neu-Generierung an (bestehende Texte bleiben erhalten). Nur für Besitzer.
  * Gibt sofort sichtbares Feedback, damit klar ist, dass der Klick wirkt.
  */
-export default function AreaControl({ token, area }: { token: string; area: AreaKey }) {
+export default function AreaControl({
+  token,
+  area,
+  locality,
+}: {
+  token: string;
+  area: AreaKey;
+  locality?: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -22,7 +30,7 @@ export default function AreaControl({ token, area }: { token: string; area: Area
       const res = await fetch(`/api/guides/${token}/area`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ area, delta }),
+        body: JSON.stringify({ area, delta, locality }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         message?: string;

@@ -289,6 +289,9 @@ model GuideRequest {
   /// Pro-Bereich-Feintuning (mehr/weniger je Bereich), Record<areaKey, delta>
   /// z. B. { "hikes": 2, "foodBudget": 3, "sights": -1 }
   areaCounts    Json          @default("{}")
+  /// Pro-Ort-Feintuning: Record<locality, Record<areaKey, delta>>
+  /// z. B. { "Bellagio": { "foodBudget": 2, "sights": 1 } }
+  localityCounts Json         @default("{}")
   status        RequestStatus @default(pending)
   error         String?
   createdAt     DateTime      @default(now()) @map("created_at")

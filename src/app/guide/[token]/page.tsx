@@ -281,6 +281,14 @@ export default async function GuidePage({
   }
 
   function renderTownChapter(chapter: Chapter) {
+    // Ort-Schlüssel für das Pro-Ort-Feintuning (muss zur Generierung passen:
+    // locality der Einträge, leere locality => "Rund um den See"). Nur bei
+    // echten Ort-Kapiteln (kind "town"), nicht bei Anker-Sektionen.
+    const townLocality =
+      chapter.kind === "town"
+        ? chapter.entries.map((e) => placeById.get(e.id)).find((p) => p)?.locality?.trim() ||
+          "Rund um den See"
+        : undefined;
     // Einträge nach festen Unterabschnitten gruppieren (immer gleiche Struktur)
     return (
       <section key={chapter.key} className="print-break-before mt-16">
@@ -322,7 +330,7 @@ export default async function GuidePage({
                     <div key={tier} className="mt-4">
                       <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
                         {title}
-                        {isOwner && <AreaControl token={token} area={area} />}
+                        {isOwner && <AreaControl token={token} area={area} locality={townLocality} />}
                       </h4>
                       {tierEntries.length > 0 ? (
                         <div className="mt-2 space-y-5">{tierEntries.map(renderPlaceEntry)}</div>
@@ -347,7 +355,9 @@ export default async function GuidePage({
             <div key={sub.title} className="mt-8">
               <h3 className="font-serif text-xl text-(--color-accent)">
                 {sub.title}
-                {isOwner && sub.area && <AreaControl token={token} area={sub.area} />}
+                {isOwner && sub.area && (
+                  <AreaControl token={token} area={sub.area} locality={townLocality} />
+                )}
               </h3>
               {entries.length > 0 ? (
                 <div className="mt-3 space-y-5">{entries.map(renderPlaceEntry)}</div>
