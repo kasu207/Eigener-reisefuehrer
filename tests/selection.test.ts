@@ -209,6 +209,7 @@ describe("Faktentreue-Prüfung (Anforderung 8)", () => {
           ],
         },
       ],
+      removedIds: [],
     };
     const check = validateContentAgainstSelection(content, s);
     expect(check.ok).toBe(false);

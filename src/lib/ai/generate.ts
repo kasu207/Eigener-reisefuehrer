@@ -156,7 +156,7 @@ ${extraContext ? `\n${extraContext}\n` : ""}
 KAPITEL: ${job.workingTitle}
 AUFGABE: ${job.instruction}
 
-Schreibe für jeden der folgenden Einträge einen personalisierten Empfehlungstext (2-4 Sätze, Feld "personalText") und eine individuelle Begründung, warum dieser Ort zu genau diesen Reisenden passt (1 Satz, Feld "reason", beginnend mit "Weil ihr ..."). Verwende exakt die angegebenen ids. Dazu einen kurzen Kapitel-Einleitungstext ("introText", 2-3 Sätze) und einen passenden Kapiteltitel ("title").
+Schreibe für jeden der folgenden Einträge einen ausführlichen, erzählerischen Empfehlungstext (5-8 Sätze, Feld "personalText"): Beschreibe die Atmosphäre und das Erlebnis vor Ort, was die Reisenden dort konkret erwartet, praktische Hinweise zum Besuch (ohne erfundene Zahlen), und stelle einen persönlichen Bezug zu ihren Angaben her. Der Text soll sich wie eine Seite in einem gedruckten Reiseführer lesen – warm, konkret und mit Tiefe, nicht werblich. Dazu eine individuelle Begründung, warum dieser Ort zu genau diesen Reisenden passt (1-2 Sätze, Feld "reason", beginnend mit "Weil ihr ..."). Verwende exakt die angegebenen ids. Ergänze einen einladenden Kapitel-Einleitungstext ("introText", 3-5 Sätze), der den Ort/das Thema stimmungsvoll einführt, sowie einen passenden Kapiteltitel ("title").
 
 EINTRÄGE (einzige zulässige Faktenquelle):
 ${formatEntries(job.entries)}`;
@@ -201,8 +201,8 @@ Der Reiseführer enthält folgende Kapitel:
 ${chapterSummaries.map((s) => `- ${s}`).join("\n")}
 
 AUFGABE:
-1. Schreibe eine persönliche Einleitung für den Reiseführer (Feld "introText", 4-6 Sätze), die die Reisenden mit Namen anspricht und auf Zeitraum, Anlass und Interessen eingeht. Dazu einen Titel ("introTitle").
-2. Erstelle für jeden Reisetag (${tripDays(q)} Tage) einen kurzen Tagesvorschlag ("daySuggestions": day, title, text mit 2-3 Sätzen). Kombiniere dafür nur Orte/Aktivitäten, die in den Kapiteln vorkommen, und berücksichtige das Reisetempo "${q.pace}". Nenne keine konkreten Uhrzeiten oder Preise.`;
+1. Schreibe eine persönliche, einladende Einleitung für den Reiseführer (Feld "introText", 6-9 Sätze), die die Reisenden mit Namen anspricht, auf Zeitraum, Anlass und Interessen eingeht und Lust auf die Reise macht. Dazu einen Titel ("introTitle").
+2. Erstelle für jeden Reisetag (${tripDays(q)} Tage) einen ausformulierten Tagesvorschlag ("daySuggestions": day, title, text mit 4-6 Sätzen), der einen stimmigen Tagesablauf erzählt. Kombiniere dafür nur Orte/Aktivitäten, die in den Kapiteln vorkommen, und berücksichtige das Reisetempo "${q.pace}". Nenne keine konkreten Uhrzeiten oder Preise.`;
 
   const out = await callClaude(introOutputSchema, "guide_intro", prompt, usage);
   return {

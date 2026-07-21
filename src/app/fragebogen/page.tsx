@@ -149,7 +149,7 @@ export default function FragebogenPage() {
         dateTo: form.dateTo,
         accommodation: { label: form.accommodation, lat: null, lng: null },
         mobility: form.mobility,
-        adults: form.adults,
+        adults: Math.min(20, Math.max(1, form.adults || 1)),
         children: form.children,
         occasion: form.occasion,
         interests: Object.entries(form.interests).map(([key, weight]) => ({ key, weight })),
@@ -283,9 +283,19 @@ export default function FragebogenPage() {
                 type="number"
                 min={1}
                 max={20}
+                inputMode="numeric"
                 className={inputCls}
-                value={form.adults}
-                onChange={(e) => set("adults", Math.max(1, Number(e.target.value) || 1))}
+                value={form.adults === 0 ? "" : form.adults}
+                onChange={(e) => {
+                  // Während des Tippens frei editierbar lassen (auch leeren);
+                  // ein leeres Feld wird als 0 gehalten und beim Verlassen korrigiert.
+                  const raw = e.target.value.replace(/[^0-9]/g, "");
+                  set("adults", raw === "" ? 0 : Number(raw));
+                }}
+                onBlur={(e) => {
+                  const n = Number(e.target.value) || 0;
+                  set("adults", Math.min(20, Math.max(1, n)));
+                }}
               />
             </Field>
             <Field label="Kinder">
