@@ -2,6 +2,7 @@ import { prisma } from "./db";
 import { questionnaireSchema, INTEREST_LABELS } from "./questionnaire";
 import { geocodePlace } from "./geocode";
 import { researchLocalityPlaces } from "./ai/research-locality";
+import { rateLimit } from "./rate-limit";
 import type { PlaceType } from "@prisma/client";
 
 /**
@@ -12,9 +13,6 @@ import type { PlaceType } from "@prisma/client";
  * nichts.
  */
 
-// Ab wie vielen geprüften Orten ein Ort als "abgedeckt" gilt (dann keine
-// Recherche mehr).
-const MIN_PLACES_PER_LOCALITY = 3;
 
 export async function ensureAccommodationPlaces(requestId: string): Promise<void> {
   const request = await prisma.guideRequest.findUnique({ where: { id: requestId } });
@@ -51,7 +49,14 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
         },
         select: { name: true },
       });
-      if (existing.length >= MIN_PLACES_PER_LOCALITY) continue;
+      // Nur EINMAL recherchieren: sobald der Ort irgendeinen geprüften Eintrag
+      // hat, nie wieder automatisch (Kostenschutz – jede Websuche kostet).
+      if (existing.length > 0) continue;
+      // Backstop gegen wiederholte Recherche bei erfolglosem Ergebnis (0 Treffer):
+      // pro Ort höchstens einmal je 7 Tage (im Worker-Prozess).
+      if (!rateLimit(`research-locality:${region.id}:${locality.toLowerCase()}`, 1, 7 * 24 * 60 * 60 * 1000)) {
+        continue;
+      }
 
       const candidates = await researchLocalityPlaces({
         regionName: region.name,
