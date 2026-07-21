@@ -12,6 +12,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:torno": "tsx prisma/seed-torno.ts",
+    "db:seed:knowledge": "tsx prisma/seed-knowledge-comer.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
