@@ -314,10 +314,11 @@ export default async function GuidePage({
     // locality der Einträge, leere locality => "Rund um den See"). Nur bei
     // echten Ort-Kapiteln (kind "town"), nicht bei Anker-Sektionen.
     const townLocality =
-      chapter.kind === "town"
+      chapter.locality?.trim() ||
+      (chapter.kind === "town"
         ? chapter.entries.map((e) => placeById.get(e.id)).find((p) => p)?.locality?.trim() ||
           "Rund um den See"
-        : undefined;
+        : undefined);
     // Einträge nach festen Unterabschnitten gruppieren (immer gleiche Struktur)
     return (
       <section key={chapter.key} id={`kap-${chapter.key}`} className="print-break-before mt-16 scroll-mt-24">

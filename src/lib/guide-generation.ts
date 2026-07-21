@@ -289,6 +289,17 @@ async function prepareGuideData(
     townGroups.set(town, group);
   }
 
+  // Unterkunfts-Ort aus den normalen Ort-Kapiteln herauslösen: Er wird unten
+  // GARANTIERT als erstes Kapitel gebaut (mit Ortsporträt + Umgebung) – hier
+  // entfernen, damit er nicht zusätzlich als gewöhnliches Kapitel erscheint.
+  const accLabel = (q.accommodation.label ?? "").trim();
+  const accLower = accLabel.toLowerCase();
+  if (accLabel) {
+    for (const [town] of [...townGroups.entries()]) {
+      if (town.toLowerCase() === accLower) townGroups.delete(town);
+    }
+  }
+
   const slug = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "ort";
 
@@ -342,32 +353,17 @@ async function prepareGuideData(
     });
   }
 
-  // "Rund um <Anker>": Für die Unterkunft und jeden weiteren angegebenen
-  // Anker-Ort (zusätzliche Unterkünfte / eigene Must-Sees), der in einem Ort
-  // OHNE eigenes Kapitel liegt (z. B. Torno), ergänzen wir eine Sektion mit den
-  // nächstgelegenen geprüften Orten. Additiv und ohne Dubletten – Orte, die
-  // schon in einem Ort-Kapitel oder einer früheren Anker-Sektion erscheinen,
-  // werden nicht erneut aufgenommen.
+  // Unterkunfts- und Wunsch-Ort-Kapitel: Die Unterkunft bekommt IMMER ein
+  // eigenes erstes Kapitel (Ortsporträt + Orte im Ort + nächstgelegene Ziele);
+  // weitere Anker-Orte nur, wenn es lohnende Ziele in der Nähe gibt.
   const alreadyShown = new Set<string>([...selectedTownPlaceIds, ...selection.practicalIds]);
   const townKeysLower = [...townGroups.keys()].map((t) => t.toLowerCase());
 
-  // Unterkunft zuerst, dann weitere Anker – Reihenfolge bestimmt die Kapitel
-  const anchorPoints = [q.accommodation, ...(q.anchors ?? [])];
-  const seenAnchorLabels = new Set<string>();
-  const anchorJobs: ChapterJob[] = [];
-
-  for (const anchor of anchorPoints) {
-    const label = (anchor.label ?? "").trim();
-    const labelLower = label.toLowerCase();
-    if (!label || anchor.lat == null || anchor.lng == null) continue;
-    if (seenAnchorLabels.has(labelLower)) continue;
-    seenAnchorLabels.add(labelLower);
-    // Hat der Anker-Ort ein eigenes Kapitel, ist er bereits abgedeckt
-    if (townKeysLower.includes(labelLower)) continue;
-
-    const nearby = places
-      .filter((p) => !alreadyShown.has(p.id) && p.type !== "practical")
-      .map((p) => ({ p, d: haversineKm(anchor.lat!, anchor.lng!, p.lat, p.lng) }))
+  // nächstgelegene geprüfte Orte um einen Punkt (Umkreis, ohne bereits Gezeigtes)
+  const nearbyPlaces = (lat: number, lng: number, exclude: Set<string>) =>
+    places
+      .filter((p) => !exclude.has(p.id) && p.type !== "practical")
+      .map((p) => ({ p, d: haversineKm(lat, lng, p.lat, p.lng) }))
       .filter((x) => {
         const sp = selectableById.get(x.p.id);
         return x.d <= 15 && sp != null && placePassesHardFilters(sp, q);
@@ -376,18 +372,75 @@ async function prepareGuideData(
       .slice(0, 8)
       .map((x) => x.p);
 
-    if (nearby.length === 0) continue;
+  const addToSelection = (p: PlaceWithSources) => {
+    if (p.type === "restaurant" || p.type === "bar") {
+      if (!selection.restaurantIds.includes(p.id)) selection.restaurantIds.push(p.id);
+    } else if (!selection.placeIds.includes(p.id)) {
+      selection.placeIds.push(p.id);
+    }
+  };
 
+  const anchorJobs: ChapterJob[] = [];
+
+  // 1) Unterkunfts-Kapitel – IMMER und als ERSTES, auch ohne DB-Daten.
+  if (accLabel) {
+    // ALLE geprüften Orte im Unterkunfts-Ort (nicht nur die von der Auswahl-
+    // Engine getroffenen), damit frisch recherchierte Orte garantiert erscheinen.
+    const localPlaces = places
+      .filter((p) => {
+        if (localityOf(p).toLowerCase() !== accLower) return false;
+        const sp = selectableById.get(p.id);
+        if (!sp) return true; // z. B. Praktisches ohne Score trotzdem zeigen
+        return p.type === "restaurant" || p.type === "bar"
+          ? restaurantPassesHardFilters(sp, q)
+          : placePassesHardFilters(sp, q);
+      })
+      .slice(0, 15);
+    for (const p of localPlaces) alreadyShown.add(p.id);
+    const nearby =
+      q.accommodation.lat != null && q.accommodation.lng != null
+        ? nearbyPlaces(q.accommodation.lat, q.accommodation.lng, alreadyShown)
+        : [];
+    const entries = [...localPlaces, ...nearby].sort(
+      (a, b) => (subsectionRank[a.type] ?? 9) - (subsectionRank[b.type] ?? 9)
+    );
+    for (const p of entries) {
+      alreadyShown.add(p.id);
+      addToSelection(p);
+    }
+    anchorJobs.push({
+      key: `town-${slug(accLabel)}`,
+      kind: "town",
+      workingTitle: accLabel,
+      locality: accLabel,
+      instruction: `Dies ist der Ort EURER UNTERKUNFT (${accLabel}) und der erste Anlaufpunkt der Reise. Schreibe als Kapitel-Einleitung ("introText") ein einladendes Porträt von ${accLabel} selbst (4-6 Sätze): Charakter, Lage am See, Atmosphäre, wofür der Ort bekannt ist, und eine kurze Orientierung für den ersten Tag. Für jeden Eintrag einen konkreten Empfehlungstext (3-5 Sätze); Ziele in der näheren Umgebung ruhig als "wenige Minuten entfernt / in kurzer Distanz" einordnen.`,
+      entries: entries.map((p) => toEntryContext(p, allChunks)),
+    });
+  }
+
+  // 2) Weitere Wunsch-Orte (Anker) – nur wenn es Umgebung gibt, ohne Dubletten.
+  const seenAnchorLabels = new Set<string>([accLower]);
+  for (const anchor of q.anchors ?? []) {
+    const label = (anchor.label ?? "").trim();
+    const labelLower = label.toLowerCase();
+    if (!label || anchor.lat == null || anchor.lng == null) continue;
+    if (seenAnchorLabels.has(labelLower)) continue;
+    seenAnchorLabels.add(labelLower);
+    // Hat der Anker-Ort ein eigenes Ort-Kapitel, ist er bereits abgedeckt
+    if (townKeysLower.includes(labelLower)) continue;
+
+    const nearby = nearbyPlaces(anchor.lat, anchor.lng, alreadyShown);
+    if (nearby.length === 0) continue;
     for (const p of nearby) {
-      alreadyShown.add(p.id); // gegen Dubletten in weiteren Anker-Sektionen
-      if (p.type === "restaurant" || p.type === "bar") selection.restaurantIds.push(p.id);
-      else selection.placeIds.push(p.id);
+      alreadyShown.add(p.id);
+      addToSelection(p);
     }
     anchorJobs.push({
       key: `near-${slug(label)}`,
       kind: "places",
       workingTitle: `Rund um ${label}`,
-      instruction: `Die Reisenden interessieren sich für ${label} (Unterkunft oder Wunsch-Ort). Für diesen Ort gibt es kein eigenes Kapitel – stelle hier die nächstgelegenen lohnenden Ziele als schnelle Orientierung vor (je 3-5 Sätze): was sich in kurzer Distanz anbietet und warum es sich lohnt. Mache neugierig auf die Umgebung.`,
+      locality: label,
+      instruction: `Die Reisenden interessieren sich für ${label} (Wunsch-Ort). Für diesen Ort gibt es kein eigenes Kapitel – stelle hier die nächstgelegenen lohnenden Ziele als schnelle Orientierung vor (je 3-5 Sätze): was sich in kurzer Distanz anbietet und warum es sich lohnt.`,
       entries: nearby.map((p) => toEntryContext(p, allChunks)),
     });
   }
@@ -416,6 +469,7 @@ function buildSkeletonContent(data: PreparedGuideData): GuideContent {
       kind: job.kind,
       title: job.workingTitle,
       introText: "",
+      locality: job.locality,
       entries: job.entries.map((e) => ({ id: e.id, personalText: "", reason: "" })),
     })),
     daySuggestions: [],
@@ -517,6 +571,7 @@ export async function generateGuideForRequest(requestId: string): Promise<string
               kind: j.kind,
               title: old?.title ?? j.workingTitle,
               introText: old?.introText ?? "",
+              locality: j.locality,
               entries: j.entries.map((e) => oldEntry(e.id) ?? { id: e.id, personalText: "", reason: "" }),
             };
           }),
@@ -549,6 +604,7 @@ export async function generateGuideForRequest(requestId: string): Promise<string
       title: old?.edited ? old.title : old?.title || freshChapter?.title || job.workingTitle,
       introText: old?.edited ? old.introText : old?.introText || freshChapter?.introText || "",
       edited: old?.edited,
+      locality: job.locality,
       entries: job.entries.map((e) => {
         const prev = oldEntry(e.id);
         if (prev?.personalText) return prev; // bestehenden (auch bearbeiteten) Text behalten

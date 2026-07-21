@@ -118,6 +118,8 @@ export interface ChapterJob {
   workingTitle: string;
   instruction: string;
   entries: EntryContext[];
+  /** Ort-Bezug (für per-Ort-„+"), wird in den Guide-Inhalt durchgereicht. */
+  locality?: string;
 }
 
 function formatEntries(entries: EntryContext[]): string {

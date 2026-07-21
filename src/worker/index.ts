@@ -2,6 +2,7 @@ import "dotenv/config";
 import { prisma } from "../lib/db";
 import { generateGuideForRequest } from "../lib/guide-generation";
 import { processKnowledgeDocument } from "../lib/knowledge";
+import { ensureAccommodationPlaces } from "../lib/accommodation";
 
 /**
  * DB-basierte Job-Queue (Anforderung 7): pollt `guide_requests` mit Status
@@ -35,6 +36,9 @@ async function processOne(): Promise<boolean> {
   console.log(`[worker] Generiere Guide für Request ${id} ...`);
   const started = Date.now();
   try {
+    // Einmalig echte Orte für den Unterkunfts-/Wunsch-Ort laden (idempotent,
+    // no-op bei genug Bestand) – damit z. B. Torno echte Tipps bekommt.
+    await ensureAccommodationPlaces(id);
     const guideId = await generateGuideForRequest(id);
     await prisma.guideRequest.update({ where: { id }, data: { status: "ready", error: null } });
     console.log(`[worker] Fertig: Guide ${guideId} in ${Math.round((Date.now() - started) / 1000)}s`);

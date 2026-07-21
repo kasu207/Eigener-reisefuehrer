@@ -30,6 +30,8 @@ export const chapterSchema = z.object({
   introText: z.string(),
   entries: z.array(chapterEntrySchema),
   edited: z.boolean().optional(), // Titel/Einleitung manuell geändert
+  /** Ort-Bezug des Kapitels (für das per-Ort-Feintuning „+"), z. B. "Torno". */
+  locality: z.string().optional(),
 });
 
 export const daySuggestionSchema = z.object({
