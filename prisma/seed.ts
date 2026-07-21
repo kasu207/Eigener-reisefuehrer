@@ -421,9 +421,23 @@ async function main() {
     },
   ];
 
-  // Alter, einzelner Sprachführer wird durch die thematischen Tabellen ersetzt.
+  // Alt-Einträge aus früheren Seed-Versionen entfernen, damit sich Inhalte
+  // nicht doppeln (z. B. ein zweiter Geschichts-/Währungs-/Transportblock,
+  // der mitten im Sprachführer auftauchte). Die aktuellen, ausführlicheren
+  // Fassungen bleiben erhalten.
   await prisma.regionInfo.deleteMany({
-    where: { regionId: region.id, title: "Kleiner Sprachführer" },
+    where: {
+      regionId: region.id,
+      title: {
+        in: [
+          "Kleiner Sprachführer",
+          "Kleine Geschichte des Comer Sees",
+          "Währung & Bezahlen",
+          "Trinkwasser",
+          "Anreise & Verkehr",
+        ],
+      },
+    },
   });
 
   for (const info of infos) {

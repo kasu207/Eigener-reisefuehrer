@@ -8,20 +8,34 @@ import type { AreaKey } from "@/lib/areas";
  * Kompakter Inline-Regler (−/+) direkt an einer Abschnitts-Überschrift.
  * Passt den Umfang dieses Bereichs an und stößt eine inkrementelle
  * Neu-Generierung an (bestehende Texte bleiben erhalten). Nur für Besitzer.
+ * Gibt sofort sichtbares Feedback, damit klar ist, dass der Klick wirkt.
  */
 export default function AreaControl({ token, area }: { token: string; area: AreaKey }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   async function change(delta: number) {
     setBusy(true);
+    setNote(null);
     try {
-      await fetch(`/api/guides/${token}/area`, {
+      const res = await fetch(`/api/guides/${token}/area`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ area, delta }),
       });
-      router.refresh();
+      if (res.ok) {
+        setNote(delta > 0 ? "mehr angefragt …" : "weniger angefragt …");
+        router.refresh();
+        // Hinweis nach kurzer Zeit ausblenden
+        setTimeout(() => setNote(null), 4000);
+      } else if (res.status === 429) {
+        setNote("Zu viele Änderungen – kurz warten.");
+      } else {
+        setNote("Fehler – bitte erneut versuchen.");
+      }
+    } catch {
+      setNote("Netzwerkfehler – bitte erneut versuchen.");
     } finally {
       setBusy(false);
     }
@@ -47,6 +61,9 @@ export default function AreaControl({ token, area }: { token: string; area: Area
       >
         +
       </button>
+      {note && (
+        <span className="ml-1 text-xs font-normal text-neutral-500">{note}</span>
+      )}
     </span>
   );
 }

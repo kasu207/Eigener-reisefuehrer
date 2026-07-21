@@ -31,7 +31,8 @@ HARTE REGELN:
 - Fehlende Fakten lässt du weg. Du erfindest NIEMALS Zahlen, Namen oder Details.
 - Fakten-Boxen werden separat aus der Datenbank gerendert – wiederhole keine Adressen oder Zahlenkolonnen im Fließtext.
 - Sprich die Reisenden direkt mit "ihr" an und beziehe dich auf ihre Angaben aus dem Fragebogen ("Weil ihr gern ... seid").
-- Stil: ruhig, warmherzig, redaktionell hochwertig wie ein modernes Reisemagazin. Keine Superlative-Kaskaden, keine Emojis.`;
+- Stil: ruhig, warmherzig, redaktionell hochwertig wie ein modernes Reisemagazin. Keine Superlative-Kaskaden, keine Emojis.
+- KEINE generischen Regionstipps in einzelnen Einträgen wiederholen: Dinge wie das "Coperto" (Gedeck), Trinkgeld-Gepflogenheiten, dass Leitungswasser trinkbar ist, die Aperitivo-Zeit oder allgemeine Fähren-/Parkhinweise stehen bereits einmal zentral im Kapitel "Gut zu wissen". Schreibe stattdessen konkret über DIESEN Ort (was ihn besonders macht), nicht über allgemeine Landeskunde. Jeder Text soll eigenständig sein und sich nicht mit anderen überschneiden.`;
 
 /** Fragebogen-Zusammenfassung als Kontext für jedes Kapitel. */
 export function summarizeQuestionnaire(q: Questionnaire): string {
