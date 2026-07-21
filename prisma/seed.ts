@@ -334,6 +334,30 @@ async function main() {
     }
   }
 
+  // Beispiel-Karten-Spots (Instagram-/Foto-Fundorte). Kein Instagram-Inhalt
+  // eingebettet – nur Standort + Notiz + Quell-Link. Vor Launch prüfen/ersetzen.
+  const spots: Array<{
+    name: string;
+    category: "photo" | "food" | "viewpoint" | "hidden_gem" | "beach" | "other";
+    lat: number;
+    lng: number;
+    locality: string;
+    note: string;
+    sourceLabel: string;
+  }> = [
+    { name: "Fotopunkt Bootssteg Varenna", category: "photo", lat: 46.0112, lng: 9.2845, locality: "Varenna", note: "Beliebter Steg für Fotos in der Morgensonne. Beispiel-Spot – vor Launch prüfen.", sourceLabel: "@beispiel_insta" },
+    { name: "Aussicht Pizzo di Cernobbio", category: "viewpoint", lat: 45.8450, lng: 9.0850, locality: "Como", note: "Weitblick über das Südbecken. Beispiel-Spot – vor Launch prüfen.", sourceLabel: "@beispiel_insta" },
+    { name: "Versteckte Bucht bei Lezzeno", category: "beach", lat: 45.9500, lng: 9.2450, locality: "Lezzeno", note: "Ruhiger Seezugang abseits der Wege. Beispiel-Spot – vor Launch prüfen.", sourceLabel: "@beispiel_insta" },
+  ];
+  for (const s of spots) {
+    const existing = await prisma.mapSpot.findFirst({ where: { regionId: region.id, name: s.name } });
+    if (!existing) {
+      await prisma.mapSpot.create({
+        data: { regionId: region.id, ...s, sourceUrl: "https://www.instagram.com/", status: "verified" },
+      });
+    }
+  }
+
   const placeCount = await prisma.place.count({ where: { regionId: region.id } });
   const hikeCount = await prisma.hike.count({ where: { regionId: region.id } });
   console.log(

@@ -10,6 +10,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Link href="/admin/places" className="hover:text-(--color-accent)">Orte</Link>
           <Link href="/admin/hikes" className="hover:text-(--color-accent)">Wanderungen</Link>
           <Link href="/admin/regions" className="hover:text-(--color-accent)">Regionen</Link>
+          <Link href="/admin/spots" className="hover:text-(--color-accent)">Karten-Spots</Link>
           <Link href="/admin/knowledge" className="hover:text-(--color-accent)">Wissensbibliothek</Link>
         </nav>
       </header>

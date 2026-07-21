@@ -113,6 +113,14 @@ export default async function GuidePage({
   });
   const regionInfos = region?.infos ?? [];
 
+  // Zusätzliche Karten-Spots (Instagram-/Foto-Fundorte), nur geprüfte
+  const mapSpots = region
+    ? await prisma.mapSpot.findMany({
+        where: { regionId: region.id, status: "verified" },
+        orderBy: { name: "asc" },
+      })
+    : [];
+
   const allEntryIds = content.chapters.flatMap((c) => c.entries.map((e) => e.id));
   const places = await prisma.place.findMany({
     where: { id: { in: allEntryIds } },
@@ -141,6 +149,10 @@ export default async function GuidePage({
       return [{ lat: p.lat, lng: p.lng, label: p.name, kind }];
     })
   );
+  // Instagram-/Foto-Fundorte als eigene (violette) Pins ergänzen
+  for (const s of mapSpots) {
+    markers.push({ lat: s.lat, lng: s.lng, label: s.name, kind: "spot" });
+  }
 
   // ---- Render-Helfer -------------------------------------------------------
 
@@ -440,7 +452,8 @@ export default async function GuidePage({
           markers={markers}
         />
         <p className="mt-2 text-xs text-neutral-500">
-          Orange: Orte & Sehenswertes · Blau: Essen, Trinken & Ausgehen · Grün: Wanderungen
+          Orange: Orte & Sehenswertes · Blau: Essen, Trinken & Ausgehen · Grün:
+          Wanderungen{mapSpots.length > 0 ? " · Violett: Foto-Spots & Fundorte" : ""}
         </p>
       </section>
 
@@ -452,6 +465,39 @@ export default async function GuidePage({
 
       {/* Praktisches rund um den See */}
       {practicalChapter && renderListChapter(practicalChapter, "practical")}
+
+      {/* Foto-Spots & Instagram-Fundorte (zusätzliche Karten-Pins) */}
+      {mapSpots.length > 0 && (
+        <section className="print-break-before mt-16">
+          <div className="flex items-center gap-3">
+            <ChapterIcon kind="map" />
+            <h2 className="font-serif text-3xl">Foto-Spots & Fundorte</h2>
+          </div>
+          <p className="mt-3 leading-relaxed text-neutral-700">
+            Handverlesene Orte für schöne Fotos und Geheimtipps – auf der Karte
+            violett markiert.
+          </p>
+          <ul className="mt-6 space-y-4">
+            {mapSpots.map((s) => (
+              <li key={s.id} className="print-avoid-break border-t border-neutral-100 pt-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h4 className="font-serif text-lg">{s.name}</h4>
+                  {s.locality && <span className="text-sm text-neutral-500">{s.locality}</span>}
+                </div>
+                {s.note && <p className="mt-1 leading-relaxed">{s.note}</p>}
+                {s.sourceUrl && (
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Entdeckt via{" "}
+                    <a href={s.sourceUrl} className="text-(--color-accent) underline">
+                      {s.sourceLabel || "Quelle"}
+                    </a>
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Tagesvorschläge */}
       {(content.daySuggestions.length > 0 || regenerating) && (

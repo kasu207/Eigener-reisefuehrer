@@ -10,6 +10,7 @@ import type {
   ContentStatus,
   SourceType,
   InfoFormat,
+  SpotCategory,
 } from "@prisma/client";
 
 /** Server Actions für das Admin-CRUD (Anforderung 4.5) und die
@@ -374,6 +375,38 @@ export async function updateRegionInfo(fd: FormData) {
 export async function deleteRegionInfo(fd: FormData) {
   const info = await prisma.regionInfo.delete({ where: { id: str(fd, "id") } });
   revalidatePath(`/admin/regions/${info.regionId}`);
+}
+
+// ---------- Karten-Spots (Instagram-/Foto-Fundorte) ----------
+
+function spotData(fd: FormData) {
+  return {
+    regionId: str(fd, "regionId"),
+    name: str(fd, "name"),
+    category: str(fd, "category") as SpotCategory,
+    lat: num(fd, "lat"),
+    lng: num(fd, "lng"),
+    locality: str(fd, "locality"),
+    note: str(fd, "note"),
+    sourceUrl: str(fd, "sourceUrl"),
+    sourceLabel: str(fd, "sourceLabel"),
+    status: str(fd, "status") as ContentStatus,
+  };
+}
+
+export async function createMapSpot(fd: FormData) {
+  await prisma.mapSpot.create({ data: spotData(fd) });
+  revalidatePath("/admin/spots");
+}
+
+export async function updateMapSpot(fd: FormData) {
+  await prisma.mapSpot.update({ where: { id: str(fd, "id") }, data: spotData(fd) });
+  revalidatePath("/admin/spots");
+}
+
+export async function deleteMapSpot(fd: FormData) {
+  await prisma.mapSpot.delete({ where: { id: str(fd, "id") } });
+  revalidatePath("/admin/spots");
 }
 
 // ---------- Guide-Requests ----------

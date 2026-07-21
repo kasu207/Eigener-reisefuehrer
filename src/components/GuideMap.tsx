@@ -7,13 +7,14 @@ export interface MapMarker {
   lat: number;
   lng: number;
   label: string;
-  kind: "place" | "restaurant" | "hike";
+  kind: "place" | "restaurant" | "hike" | "spot";
 }
 
 const COLORS: Record<MapMarker["kind"], string> = {
   place: "#a4632e",
   restaurant: "#33566b",
   hike: "#4a7c3f",
+  spot: "#8a3fa0",
 };
 
 /**

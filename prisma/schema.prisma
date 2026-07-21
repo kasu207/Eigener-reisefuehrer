@@ -139,8 +139,40 @@ model Region {
   hikes       Hike[]
   infos       RegionInfo[]
   documents   KnowledgeDocument[]
+  mapSpots    MapSpot[]
 
   @@map("regions")
+}
+
+enum SpotCategory {
+  photo
+  food
+  viewpoint
+  hidden_gem
+  beach
+  other
+}
+
+/// Zusätzliche, leichtgewichtige Karten-Pins – z. B. auf Instagram entdeckte
+/// Foto-Spots und Geheimtipps. Bewusst getrennt von den kuratierten `places`:
+/// nur Standort + redaktionelle Notiz + Quell-Link (Instagram-Profil/Post).
+/// Es wird KEIN Instagram-Inhalt eingebettet oder kopiert (Rechtslage, 5.3).
+model MapSpot {
+  id             String        @id @default(cuid())
+  regionId       String        @map("region_id")
+  region         Region        @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  name           String
+  category       SpotCategory  @default(photo)
+  lat            Float
+  lng            Float
+  locality       String        @default("")
+  note           String        @default("")
+  sourceUrl      String        @default("") @map("source_url")
+  sourceLabel    String        @default("") @map("source_label")
+  status         ContentStatus @default(draft)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@map("map_spots")
 }
 
 /// Standard-Infos zur Region wie in klassischen Reiseführern:
