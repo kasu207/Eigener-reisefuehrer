@@ -4,10 +4,11 @@ import { guideContentSchema, type Chapter } from "@/lib/guide-content";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import { qrDataUri } from "@/lib/qr";
 import { foodTier } from "@/lib/selection";
-import { parseAreaCounts } from "@/lib/areas";
+import { parseAreaCounts, type AreaKey } from "@/lib/areas";
 import GuideMap, { type MapMarker } from "@/components/GuideMap";
 import AdjustPanel from "@/components/AdjustPanel";
 import FineTunePanel from "@/components/FineTunePanel";
+import AreaControl from "@/components/AreaControl";
 import ShareBox from "@/components/ShareBox";
 import GuideProgress from "@/components/GuideProgress";
 import EditableText from "@/components/EditableText";
@@ -33,23 +34,23 @@ type HikeWithImages = Hike & { images: DbImage[] };
 /** Feste Ort-Unterabschnitte – immer in gleicher Reihenfolge und Benennung.
  * "food" wird nach Preisklassen (gehoben/mittel/günstig) unterteilt. */
 type SubSection =
-  | { kind: "types"; title: string; types: PlaceWithImages["type"][] }
+  | { kind: "types"; title: string; types: PlaceWithImages["type"][]; area?: AreaKey }
   | { kind: "food" };
 const SUBSECTIONS: SubSection[] = [
-  { kind: "types", title: "Sehenswürdigkeiten & Ausblicke", types: ["village", "sight", "viewpoint"] },
+  { kind: "types", title: "Sehenswürdigkeiten & Ausblicke", types: ["village", "sight", "viewpoint"], area: "sights" },
   { kind: "types", title: "Baden & Seezugang", types: ["beach"] },
   { kind: "food" },
-  { kind: "types", title: "Ausgehen & Aperitivo", types: ["bar"] },
-  { kind: "types", title: "Unterkunft", types: ["hotel"] },
+  { kind: "types", title: "Ausgehen & Aperitivo", types: ["bar"], area: "bars" },
+  { kind: "types", title: "Unterkunft", types: ["hotel"], area: "hotels" },
   { kind: "types", title: "Veranstaltungen", types: ["event"] },
   { kind: "types", title: "Praktisches vor Ort", types: ["practical"] },
 ];
 
-/** Preisklassen-Bänder innerhalb "Essen & Trinken". */
-const FOOD_TIERS: { tier: "fancy" | "mid" | "budget"; title: string }[] = [
-  { tier: "fancy", title: "Gehoben" },
-  { tier: "mid", title: "Mittelklasse" },
-  { tier: "budget", title: "Günstig & Cafés" },
+/** Preisklassen-Bänder innerhalb "Essen & Trinken" – je Band ein eigener Regler. */
+const FOOD_TIERS: { tier: "fancy" | "mid" | "budget"; title: string; area: AreaKey }[] = [
+  { tier: "fancy", title: "Gehoben", area: "foodFancy" },
+  { tier: "mid", title: "Mittelklasse", area: "foodMid" },
+  { tier: "budget", title: "Günstig & Cafés", area: "foodBudget" },
 ];
 
 const TEXT_PLACEHOLDER = "✍️ Euer persönlicher Text entsteht gerade …";
@@ -312,17 +313,24 @@ export default async function GuidePage({
             return (
               <div key="food" className="mt-8">
                 <h3 className="font-serif text-xl text-(--color-accent)">Essen & Trinken</h3>
-                {FOOD_TIERS.map(({ tier, title }) => {
+                {FOOD_TIERS.map(({ tier, title, area }) => {
                   const tierEntries = foodEntries.filter(
                     (e) => foodTier(placeById.get(e.id)?.priceLevel ?? null) === tier
                   );
-                  if (tierEntries.length === 0) return null;
+                  if (tierEntries.length === 0 && !isOwner) return null;
                   return (
                     <div key={tier} className="mt-4">
                       <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
                         {title}
+                        {isOwner && <AreaControl token={token} area={area} />}
                       </h4>
-                      <div className="mt-2 space-y-5">{tierEntries.map(renderPlaceEntry)}</div>
+                      {tierEntries.length > 0 ? (
+                        <div className="mt-2 space-y-5">{tierEntries.map(renderPlaceEntry)}</div>
+                      ) : (
+                        <p className="no-print mt-1 text-xs text-neutral-400">
+                          Noch keine – mit „+" hinzufügen.
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -333,11 +341,21 @@ export default async function GuidePage({
             const p = placeById.get(e.id);
             return p && sub.types.includes(p.type);
           });
-          if (entries.length === 0) return null;
+          // Bereiche mit Regler auch bei 0 zeigen (zum Hinzufügen), sonst nur wenn befüllt
+          if (entries.length === 0 && !(isOwner && sub.area)) return null;
           return (
             <div key={sub.title} className="mt-8">
-              <h3 className="font-serif text-xl text-(--color-accent)">{sub.title}</h3>
-              <div className="mt-3 space-y-5">{entries.map(renderPlaceEntry)}</div>
+              <h3 className="font-serif text-xl text-(--color-accent)">
+                {sub.title}
+                {isOwner && sub.area && <AreaControl token={token} area={sub.area} />}
+              </h3>
+              {entries.length > 0 ? (
+                <div className="mt-3 space-y-5">{entries.map(renderPlaceEntry)}</div>
+              ) : (
+                <p className="no-print mt-1 text-xs text-neutral-400">
+                  Noch keine – mit „+" hinzufügen.
+                </p>
+              )}
             </div>
           );
         })}
@@ -360,6 +378,7 @@ export default async function GuidePage({
             as="h2"
             className="font-serif text-3xl"
           />
+          {isOwner && isHikes && <AreaControl token={token} area="hikes" />}
         </div>
         <EditableText
           token={token}
