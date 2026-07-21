@@ -11,6 +11,7 @@ import AdjustPanel from "@/components/AdjustPanel";
 import FineTunePanel from "@/components/FineTunePanel";
 import AreaControl from "@/components/AreaControl";
 import ShareBox from "@/components/ShareBox";
+import EmailCapture from "@/components/EmailCapture";
 import GuideProgress from "@/components/GuideProgress";
 import EditableText from "@/components/EditableText";
 import RemoveEntryButton from "@/components/RemoveEntryButton";
@@ -492,6 +493,11 @@ export default async function GuidePage({
       {/* Besitzer-Funktionen */}
       {isOwner && (
         <div className="no-print mb-10 space-y-4">
+          <EmailCapture
+            token={token}
+            alreadySet={Boolean(guide.guideRequest.email)}
+            regenerating={regenerating}
+          />
           <FineTunePanel
             token={token}
             areaCounts={parseAreaCounts(guide.guideRequest.areaCounts)}

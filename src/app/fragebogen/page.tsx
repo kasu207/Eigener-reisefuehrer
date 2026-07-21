@@ -29,11 +29,10 @@ interface FormState {
   diets: ("vegetarian" | "vegan" | "glutenfree")[];
   foodPreferences: ("regional_traditionell" | "gehoben" | "unkompliziert" | "aperitivo_bar")[];
   firstNames: string;
-  email: string;
   gdprConsent: boolean;
 }
 
-const STEPS = ["Reise", "Reisende", "Interessen", "Aktivität", "Kulinarik", "Kontakt"];
+const STEPS = ["Reise", "Reisende", "Interessen", "Aktivität", "Kulinarik", "Abschluss"];
 
 const initialState: FormState = {
   dateFrom: "",
@@ -53,7 +52,6 @@ const initialState: FormState = {
   diets: [],
   foodPreferences: [],
   firstNames: "",
-  email: "",
   gdprConsent: false,
 };
 
@@ -117,8 +115,6 @@ export default function FragebogenPage() {
         return null;
       case 5:
         if (!form.firstNames.trim()) return "Bitte gebt eure Vornamen an.";
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email))
-          return "Bitte gebt eine gültige E-Mail-Adresse an.";
         if (!form.gdprConsent) return "Bitte stimmt der Datenschutzerklärung zu.";
         return null;
       default:
@@ -167,7 +163,6 @@ export default function FragebogenPage() {
         diets: form.diets,
         foodPreferences: form.foodPreferences,
         firstNames: form.firstNames,
-        email: form.email,
         gdprConsent: form.gdprConsent,
       };
       const res = await fetch("/api/guide-requests", {
@@ -531,15 +526,11 @@ export default function FragebogenPage() {
                 onChange={(e) => set("firstNames", e.target.value)}
               />
             </Field>
-            <Field label="E-Mail-Adresse für den Ergebnis-Link">
-              <input
-                type="email"
-                className={inputCls}
-                placeholder="ihr@example.com"
-                value={form.email}
-                onChange={(e) => set("email", e.target.value)}
-              />
-            </Field>
+            <p className="rounded-lg bg-(--color-accent-soft)/30 px-4 py-3 text-sm text-neutral-600">
+              Euren Reiseführer seht ihr gleich direkt im Browser. Eine E-Mail-Adresse
+              zum Sichern des Links könnt ihr <strong>danach</strong> auf der Guide-Seite
+              hinterlegen – ganz ohne Pflichtangabe vorab.
+            </p>
             <label className="flex items-start gap-3 text-sm text-neutral-700">
               <input
                 type="checkbox"

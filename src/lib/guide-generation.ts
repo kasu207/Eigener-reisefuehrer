@@ -662,10 +662,19 @@ export async function generateGuideForRequest(requestId: string): Promise<string
     },
   });
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const guideUrl = `${appUrl}/guide/${guide.publicToken}`;
-  const isRevision = existing?.modelUsed !== undefined && existing?.modelUsed !== "skeleton";
-  await sendGuideReadyEmail(q.email, guideUrl, q.firstNames, Boolean(isRevision));
+  // E-Mail nur senden, wenn die Nutzer:in nach der Erstellung eine Adresse
+  // hinterlegt hat. Frisch nachladen, da sie evtl. WÄHREND der Generierung
+  // eingegeben wurde (der oben geladene request-Snapshot wäre dann veraltet).
+  const fresh = await prisma.guideRequest.findUnique({
+    where: { id: requestId },
+    select: { email: true },
+  });
+  if (fresh?.email) {
+    const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+    const guideUrl = `${appUrl}/guide/${guide.publicToken}`;
+    const isRevision = existing?.modelUsed !== undefined && existing?.modelUsed !== "skeleton";
+    await sendGuideReadyEmail(fresh.email, guideUrl, q.firstNames, Boolean(isRevision));
+  }
 
   return guide.id;
 }

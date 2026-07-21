@@ -87,7 +87,9 @@ export const questionnaireSchema = z.object({
 
   // 6. Kontakt
   firstNames: z.string().min(1).max(200),
-  email: z.string().email().max(320),
+  // E-Mail ist optional und wird erst NACH der Erstellung auf der Guide-Seite
+  // abgefragt (zum Link-Sichern/Benachrichtigen). Leer erlaubt.
+  email: z.union([z.string().email().max(320), z.literal("")]).default(""),
   gdprConsent: z.literal(true),
 });
 

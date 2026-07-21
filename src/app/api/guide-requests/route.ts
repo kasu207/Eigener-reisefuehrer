@@ -80,7 +80,8 @@ export async function POST(req: NextRequest) {
 
   const request = await prisma.guideRequest.create({
     data: {
-      email: questionnaire.email,
+      // E-Mail wird erst nach der Erstellung auf der Guide-Seite abgefragt
+      email: questionnaire.email ?? "",
       questionnaire,
       status: "pending",
     },
