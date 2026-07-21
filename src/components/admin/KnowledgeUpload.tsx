@@ -34,9 +34,20 @@ export default function KnowledgeUpload({
     setMsg(null);
     setProgress(0);
 
+    // Datei als ROHEN Body senden (kein Multipart), Metadaten als Query-Parameter.
+    // Das umgeht die Größenlimits von Server-Actions und req.formData().
+    const params = new URLSearchParams({
+      regionId: String(data.get("regionId") ?? ""),
+      kind: String(data.get("kind") ?? "book"),
+      title: String(data.get("title") ?? ""),
+      filename: file.name,
+      type: file.type || "",
+    });
+
     // XHR statt fetch, um einen Fortschrittsbalken zu zeigen (große Dateien)
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/admin/knowledge-upload");
+    xhr.open("POST", `/api/admin/knowledge-upload?${params.toString()}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (ev) => {
       if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100));
     };
@@ -64,7 +75,7 @@ export default function KnowledgeUpload({
       setBusy(false);
       setMsg({ type: "err", text: "Netzwerkfehler beim Upload." });
     };
-    xhr.send(data);
+    xhr.send(file);
   }
 
   return (

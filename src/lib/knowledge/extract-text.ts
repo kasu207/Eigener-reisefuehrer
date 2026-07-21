@@ -57,19 +57,22 @@ async function extractEpub(buffer: Buffer): Promise<string> {
 }
 
 /**
- * Extrahiert reinen Text aus einer hochgeladenen Datei (PDF, EPUB, TXT, MD).
+ * Extrahiert reinen Text aus einem Datei-Buffer (PDF, EPUB, TXT, MD).
  * Wirft einen Fehler mit klarer Meldung, wenn das Format nicht unterstützt wird
  * oder kein Text gefunden wurde (z. B. reines Scan-PDF oder DRM-geschütztes EPUB).
  */
-export async function extractTextFromFile(file: File): Promise<ExtractResult> {
-  const name = file.name.toLowerCase();
-  const buffer = Buffer.from(await file.arrayBuffer());
+export async function extractText(
+  buffer: Buffer,
+  filename: string,
+  mimeType = ""
+): Promise<ExtractResult> {
+  const name = filename.toLowerCase();
 
-  const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
-  const isEpub = file.type === "application/epub+zip" || name.endsWith(".epub");
+  const isPdf = mimeType === "application/pdf" || name.endsWith(".pdf");
+  const isEpub = mimeType === "application/epub+zip" || name.endsWith(".epub");
   const isText =
-    file.type === "text/plain" ||
-    file.type === "text/markdown" ||
+    mimeType === "text/plain" ||
+    mimeType === "text/markdown" ||
     name.endsWith(".txt") ||
     name.endsWith(".md");
 
@@ -85,7 +88,7 @@ export async function extractTextFromFile(file: File): Promise<ExtractResult> {
     kind = "text";
     text = buffer.toString("utf8").trim();
   } else {
-    throw new Error(`Nicht unterstütztes Format (${file.type || name}). Erlaubt: PDF, EPUB, TXT, MD.`);
+    throw new Error(`Nicht unterstütztes Format (${mimeType || name}). Erlaubt: PDF, EPUB, TXT, MD.`);
   }
 
   if (text.length < 100) {
@@ -94,4 +97,10 @@ export async function extractTextFromFile(file: File): Promise<ExtractResult> {
     );
   }
   return { text, kind };
+}
+
+/** Bequemer Wrapper für ein Web-File-Objekt. */
+export async function extractTextFromFile(file: File): Promise<ExtractResult> {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  return extractText(buffer, file.name, file.type);
 }
