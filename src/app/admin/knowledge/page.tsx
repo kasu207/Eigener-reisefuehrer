@@ -26,7 +26,12 @@ const STATUS_LABEL: Record<string, string> = {
  * KI-Wissensdatenbank): Bücher/Reiseführer hochladen, Blogs verlinken,
  * Nutzer-Einreichungen moderieren, aufbereitete Notizen prüfen.
  */
-export default async function KnowledgePage() {
+export default async function KnowledgePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; ok?: string }>;
+}) {
+  const sp = await searchParams;
   const regions = await prisma.region.findMany({ orderBy: { name: "asc" } });
   const documents = await prisma.knowledgeDocument.findMany({
     orderBy: { createdAt: "desc" },
@@ -38,6 +43,16 @@ export default async function KnowledgePage() {
 
   return (
     <div className="space-y-10">
+      {sp.ok && (
+        <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {sp.ok}
+        </div>
+      )}
+      {sp.error && (
+        <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          Upload nicht möglich: {sp.error}
+        </div>
+      )}
       <div>
         <h2 className="font-serif text-xl">Wissensbibliothek</h2>
         <p className="mt-1 max-w-2xl text-sm text-neutral-600">

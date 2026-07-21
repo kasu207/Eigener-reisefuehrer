@@ -335,15 +335,26 @@ const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
 /** Buch/Reiseführer als Datei hochladen (PDF, EPUB, TXT oder Markdown). */
 export async function uploadKnowledgeFile(fd: FormData) {
   const file = fd.get("file");
-  if (!(file instanceof File) || file.size === 0) return;
+  if (!(file instanceof File) || file.size === 0) {
+    redirect("/admin/knowledge?error=" + encodeURIComponent("Keine Datei ausgewählt."));
+  }
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error("Datei zu groß (max. 120 MB)");
+    redirect("/admin/knowledge?error=" + encodeURIComponent("Datei zu groß (max. 120 MB)."));
   }
 
-  // Text lokal extrahieren (Bilder werden ignoriert); nur der Text wird
-  // gespeichert und später an die KI gegeben.
-  const { extractTextFromFile } = await import("@/lib/knowledge/extract-text");
-  const { text } = await extractTextFromFile(file);
+  let text: string;
+  try {
+    // Text lokal extrahieren (Bilder werden ignoriert); nur der Text wird
+    // gespeichert und später an die KI gegeben.
+    const { extractTextFromFile } = await import("@/lib/knowledge/extract-text");
+    ({ text } = await extractTextFromFile(file));
+  } catch (e) {
+    // Echte Ursache in die Server-Logs schreiben und dem Nutzer lesbar zeigen,
+    // statt der generischen Next-Fehlerseite.
+    console.error("[upload] Text-Extraktion fehlgeschlagen:", e);
+    const msg = e instanceof Error ? e.message : "Datei konnte nicht gelesen werden.";
+    redirect("/admin/knowledge?error=" + encodeURIComponent(msg));
+  }
 
   await prisma.knowledgeDocument.create({
     data: {
@@ -359,6 +370,7 @@ export async function uploadKnowledgeFile(fd: FormData) {
     },
   });
   revalidatePath("/admin/knowledge");
+  redirect("/admin/knowledge?ok=" + encodeURIComponent(`„${str(fd, "title") || file.name}" hochgeladen – Text extrahiert.`));
 }
 
 /** Blog/Artikel per URL verlinken. */
