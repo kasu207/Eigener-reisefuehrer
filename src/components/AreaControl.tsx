@@ -24,15 +24,20 @@ export default function AreaControl({ token, area }: { token: string; area: Area
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ area, delta }),
       });
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        changed?: boolean;
+        error?: string;
+      };
       if (res.ok) {
-        setNote(delta > 0 ? "mehr angefragt …" : "weniger angefragt …");
-        router.refresh();
-        // Hinweis nach kurzer Zeit ausblenden
-        setTimeout(() => setNote(null), 4000);
+        setNote(data.message ?? (delta > 0 ? "mehr angefragt …" : "weniger angefragt …"));
+        // Nur bei echter Änderung neu laden (löst Neu-Generierung/Banner aus)
+        if (data.changed) router.refresh();
+        setTimeout(() => setNote(null), 6000);
       } else if (res.status === 429) {
         setNote("Zu viele Änderungen – kurz warten.");
       } else {
-        setNote("Fehler – bitte erneut versuchen.");
+        setNote(data.error ?? "Fehler – bitte erneut versuchen.");
       }
     } catch {
       setNote("Netzwerkfehler – bitte erneut versuchen.");
