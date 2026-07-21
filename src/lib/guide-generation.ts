@@ -12,7 +12,6 @@ import {
 import {
   validateContentAgainstSelection,
   guideContentSchema,
-  mergeGuideContent,
   type GuideContent,
 } from "./guide-content";
 import { generatePublicToken } from "./token";
@@ -22,6 +21,7 @@ import {
   modifiersFromAdjustments,
   describeAdjustments,
 } from "./adjustments";
+import { parseAreaCounts } from "./areas";
 import {
   matchChunksToQuestionnaire,
   chunksForPlaceName,
@@ -102,6 +102,7 @@ async function prepareGuideData(
   const q: Questionnaire = questionnaireSchema.parse(request.questionnaire);
   const adjustments = adjustmentsSchema.parse(request.adjustments ?? []);
   const mods = modifiersFromAdjustments(adjustments);
+  const areaCounts = parseAreaCounts(request.areaCounts);
 
   const region = await prisma.region.findUniqueOrThrow({ where: { slug: q.regionSlug } });
 
@@ -152,7 +153,7 @@ async function prepareGuideData(
     tags: h.tags,
   }));
 
-  const selection = selectContent(selectablePlaces, selectableHikes, q, mods);
+  const selection = selectContent(selectablePlaces, selectableHikes, q, mods, areaCounts);
 
   const placeById = new Map(places.map((p) => [p.id, p]));
   const hikeById = new Map(hikes.map((h) => [h.id, h]));
@@ -337,9 +338,19 @@ export async function generateGuideForRequest(requestId: string): Promise<string
 
   const data = await prepareGuideData(request, removedIds);
 
-  // Laufender Zwischenstand: beginnt als (gemergtes) Skeleton
-  let working = mergeGuideContent(buildSkeletonContent(data), existingContent ?? buildSkeletonContent(data));
+  // Bestehende Texte je Eintrag/Kapitel, um sie inkrementell zu bewahren:
+  // Nur NEUE Einträge werden von der KI getextet (spart Tokens beim
+  // Feintuning "mehr/weniger" – bestehende Texte bleiben unangetastet).
+  const oldChapterByKey = new Map((existingContent?.chapters ?? []).map((c) => [c.key, c]));
+  const oldEntry = (id: string) => {
+    for (const c of existingContent?.chapters ?? []) {
+      const e = c.entries.find((x) => x.id === id);
+      if (e) return e;
+    }
+    return undefined;
+  };
 
+  // Guide-Zeile (falls Skeleton noch nicht existiert, anlegen)
   const guideId = existing
     ? existing.id
     : (
@@ -347,7 +358,7 @@ export async function generateGuideForRequest(requestId: string): Promise<string
           data: {
             guideRequestId: request.id,
             selection: JSON.parse(JSON.stringify(data.selection)),
-            content: JSON.parse(JSON.stringify(working)),
+            content: JSON.parse(JSON.stringify(buildSkeletonContent(data))),
             publicToken: generatePublicToken(),
             shareToken: generatePublicToken(),
             modelUsed: "skeleton",
@@ -355,46 +366,90 @@ export async function generateGuideForRequest(requestId: string): Promise<string
         })
       ).id;
 
-  const saveProgress = async (content: GuideContent) => {
+  const chapters: GuideContent["chapters"] = [];
+  const saveProgress = async () => {
+    const partial: GuideContent = {
+      intro: existingContent?.intro ?? { title: `Euer ${data.regionName}`, text: "" },
+      chapters: [
+        ...chapters,
+        // noch nicht bearbeitete Kapitel als Gerüst zeigen (Live-Füllen)
+        ...data.jobs
+          .filter((j) => !chapters.some((c) => c.key === j.key))
+          .map((j) => {
+            const old = oldChapterByKey.get(j.key);
+            return {
+              key: j.key,
+              kind: j.kind,
+              title: old?.title ?? j.workingTitle,
+              introText: old?.introText ?? "",
+              entries: j.entries.map((e) => oldEntry(e.id) ?? { id: e.id, personalText: "", reason: "" }),
+            };
+          }),
+      ],
+      daySuggestions: existingContent?.daySuggestions ?? [],
+      removedIds: [...removedIds],
+    };
     await prisma.guide.update({
       where: { id: guideId },
-      data: { content: JSON.parse(JSON.stringify(content)) },
+      data: { content: JSON.parse(JSON.stringify(partial)) },
     });
   };
 
-  // Kapitelweise Generierung (Anforderung 4.3) mit Live-Zwischenspeichern
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  const freshChapters = [];
   for (const job of data.jobs) {
-    const chapter = await generateChapter(q, job, usage, data.extraContext);
-    freshChapters.push(chapter);
-    working = mergeGuideContent(
-      { ...working, chapters: working.chapters.map((c) => (c.key === chapter.key ? chapter : c)) },
-      working
-    );
-    await saveProgress(working);
+    const old = oldChapterByKey.get(job.key);
+    const newEntries = job.entries.filter((e) => !oldEntry(e.id)?.personalText);
+
+    let freshChapter: Awaited<ReturnType<typeof generateChapter>> | null = null;
+    if (newEntries.length > 0 || !old?.introText) {
+      // Nur die neuen Einträge an die KI geben (falls es welche gibt)
+      const jobForAI = { ...job, entries: newEntries.length > 0 ? newEntries : job.entries };
+      freshChapter = await generateChapter(q, jobForAI, usage, data.extraContext);
+    }
+
+    const freshById = new Map((freshChapter?.entries ?? []).map((e) => [e.id, e]));
+    chapters.push({
+      key: job.key,
+      kind: job.kind,
+      title: old?.edited ? old.title : old?.title || freshChapter?.title || job.workingTitle,
+      introText: old?.edited ? old.introText : old?.introText || freshChapter?.introText || "",
+      edited: old?.edited,
+      entries: job.entries.map((e) => {
+        const prev = oldEntry(e.id);
+        if (prev?.personalText) return prev; // bestehenden (auch bearbeiteten) Text behalten
+        return freshById.get(e.id) ?? { id: e.id, personalText: "", reason: "" };
+      }),
+    });
+    await saveProgress();
   }
 
-  const { intro, daySuggestions } = await generateIntro(
-    q,
-    freshChapters.map(
-      (c) =>
-        `${c.title}: ${c.entries
-          .map((e) => data.entryNameById.get(e.id) ?? "")
-          .filter(Boolean)
-          .join(", ")}`
-    ),
-    usage,
-    data.extraContext
-  );
+  // Einleitung & Tagesvorschläge nur erzeugen, wenn noch nicht vorhanden
+  // (beim Feintuning bleiben sie stabil und kosten keine Tokens)
+  let intro = existingContent?.intro;
+  let daySuggestions = existingContent?.daySuggestions ?? [];
+  if (!intro?.text || daySuggestions.length === 0) {
+    const generated = await generateIntro(
+      q,
+      chapters.map(
+        (c) =>
+          `${c.title}: ${c.entries
+            .map((e) => data.entryNameById.get(e.id) ?? "")
+            .filter(Boolean)
+            .join(", ")}`
+      ),
+      usage,
+      data.extraContext
+    );
+    if (!intro?.edited) intro = intro?.text ? intro : generated.intro;
+    if (daySuggestions.length === 0) daySuggestions = generated.daySuggestions;
+  }
 
-  const fresh: GuideContent = {
-    intro,
-    chapters: freshChapters,
+  const finalContent: GuideContent = {
+    intro: intro ?? { title: `Euer ${data.regionName}`, text: "" },
+    chapters,
     daySuggestions,
     removedIds: [...removedIds],
   };
-  const finalContent = mergeGuideContent(fresh, working);
 
   // Automatischer Faktentreue-Check: kein Inhalt ohne DB-Beleg
   const check = validateContentAgainstSelection(finalContent, data.selection);

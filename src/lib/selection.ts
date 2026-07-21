@@ -1,6 +1,9 @@
 import type { Questionnaire, Interest } from "./questionnaire";
 import { tripDays } from "./questionnaire";
 import { emptyModifiers, type SelectionModifiers } from "./adjustments";
+import type { AreaKey, AreaCounts } from "./areas";
+
+export type AreaTargets = Record<AreaKey, number>;
 
 /**
  * Deterministische Auswahl-Engine (Anforderung 4.2).
@@ -40,8 +43,15 @@ export interface Selection {
   hikeIds: string[];
   restaurantIds: string[];
   practicalIds: string[];
-  targets: { places: number; hikes: number; restaurants: number };
+  targets: AreaTargets;
   debug: Record<string, unknown>;
+}
+
+/** Preisklasse eines Gastro-Eintrags (für die Bereiche gehoben/mittel/günstig). */
+export function foodTier(priceLevel: number | null): "fancy" | "mid" | "budget" {
+  if (priceLevel != null && priceLevel >= 4) return "fancy";
+  if (priceLevel === 3) return "mid";
+  return "budget"; // 1, 2 oder unbekannt -> günstig/Cafés
 }
 
 /** Zuordnung Interesse -> Ort-Tags/Typen für das Scoring. */
@@ -213,20 +223,36 @@ function pickWithSpread<T extends { lat: number; lng: number }>(
   return picked;
 }
 
-/** Zielmengen abhängig von Reisedauer, Tempo (4.2) und Anpassungswünschen. */
+/**
+ * Zielmengen je Bereich, abhängig von Reisedauer, Tempo, globalen
+ * Anpassungswünschen (Presets) UND dem Pro-Bereich-Feintuning (mehr/weniger).
+ * Standard bei Essen: 1-2 "gehoben", mehrere "mittel" und "günstig".
+ */
 export function computeTargets(
   q: Questionnaire,
-  mods: SelectionModifiers = emptyModifiers()
-): Selection["targets"] {
+  mods: SelectionModifiers = emptyModifiers(),
+  areaCounts: AreaCounts = {}
+): AreaTargets {
   const days = tripDays(q);
   const paceFactor = q.pace === "entspannt" ? 0.8 : q.pace === "vollgepackt" ? 1.3 : 1;
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
-  // Großzügige Zielmengen für ein echtes Buch-Gefühl (70–100 Druckseiten):
-  // pro Ort mehrere Sehenswürdigkeiten, Restaurants, Bars, Hotels usw.
+  const d = (k: AreaKey) => areaCounts[k] ?? 0;
+
   return {
-    places: clamp(days * 7 * paceFactor, 30, 70),
-    hikes: clamp(days * 1.2 * paceFactor, 4, 12) + mods.extraHikes,
-    restaurants: clamp(days * 3 * paceFactor, 12, 35) + mods.extraRestaurants,
+    sights: Math.max(0, clamp(days * 4 * paceFactor, 8, 40) + d("sights")),
+    hikes: Math.max(0, clamp(days * 1.2 * paceFactor, 4, 12) + mods.extraHikes + d("hikes")),
+    // Gehoben bewusst knapp (1-2), damit es besondere Empfehlungen bleiben
+    foodFancy: Math.max(0, 2 + d("foodFancy")),
+    foodMid: Math.max(0, clamp(days * 1.2 * paceFactor, 3, 14) + mods.extraRestaurants + d("foodMid")),
+    foodBudget: Math.max(
+      0,
+      clamp(days * 1.4 * paceFactor, 4, 16) +
+        mods.extraRestaurants +
+        (mods.budgetFoodBoost ? 3 : 0) +
+        d("foodBudget")
+    ),
+    bars: Math.max(0, clamp(days * 0.8 * paceFactor, 2, 8) + d("bars")),
+    hotels: Math.max(0, clamp(days * 0.6 * paceFactor, 2, 8) + d("hotels")),
   };
 }
 
@@ -234,53 +260,74 @@ export function selectContent(
   places: SelectablePlace[],
   hikes: SelectableHike[],
   q: Questionnaire,
-  mods: SelectionModifiers = emptyModifiers()
+  mods: SelectionModifiers = emptyModifiers(),
+  areaCounts: AreaCounts = {}
 ): Selection {
-  const targets = computeTargets(q, mods);
+  const targets = computeTargets(q, mods, areaCounts);
 
-  const isRestaurant = (p: SelectablePlace) => p.type === "restaurant" || p.type === "bar";
-  const isPractical = (p: SelectablePlace) => p.type === "practical";
+  const scored = (list: SelectablePlace[]) =>
+    list.map((p) => ({ item: p, score: scorePlace(p, q, mods) }));
 
-  const poiCandidates = places
-    .filter((p) => !isRestaurant(p) && !isPractical(p))
-    .filter((p) => placePassesHardFilters(p, q))
-    .map((p) => ({ item: p, score: scorePlace(p, q, mods) }));
+  // Sehenswürdigkeiten & Ausblicke (inkl. Dörfer, Aussichten, Strände)
+  const sightCandidates = scored(
+    places.filter(
+      (p) =>
+        ["village", "sight", "viewpoint", "beach"].includes(p.type) &&
+        placePassesHardFilters(p, q)
+    )
+  );
 
-  const restaurantCandidates = places
-    .filter(isRestaurant)
-    .filter((p) => restaurantPassesHardFilters(p, q))
-    .map((p) => ({ item: p, score: scorePlace(p, q, mods) }));
+  // Gastronomie nach Preisklasse getrennt
+  const restaurants = places.filter((p) => p.type === "restaurant" && restaurantPassesHardFilters(p, q));
+  const fancy = scored(restaurants.filter((p) => foodTier(p.priceLevel) === "fancy"));
+  const mid = scored(restaurants.filter((p) => foodTier(p.priceLevel) === "mid"));
+  const budget = scored(restaurants.filter((p) => foodTier(p.priceLevel) === "budget"));
+
+  const bars = scored(places.filter((p) => p.type === "bar" && restaurantPassesHardFilters(p, q)));
+  const hotels = scored(places.filter((p) => p.type === "hotel" && placePassesHardFilters(p, q)));
+  // Veranstaltungen: alle passenden (meist wenige) übernehmen
+  const eventIds = places
+    .filter((p) => p.type === "event" && placePassesHardFilters(p, q))
+    .map((p) => p.id);
 
   const hikeCandidates = hikes
     .filter((h) => hikePassesHardFilters(h, q))
-    .map((h) => ({
-      item: { ...h, lat: h.startLat, lng: h.startLng },
-      score: scoreHike(h, q, mods),
-    }));
+    .map((h) => ({ item: { ...h, lat: h.startLat, lng: h.startLng }, score: scoreHike(h, q, mods) }));
 
-  // Wanderungen nur, wenn Interesse vorhanden oder Fitness es nahelegt
   const wantsHiking =
     q.interests.some((i) => i.key === "wandern") || (mods.interestBoosts["wandern"] ?? 0) > 0;
   const hikeTarget = wantsHiking ? targets.hikes : Math.min(2, targets.hikes);
 
-  const pickedPlaces = pickWithSpread(poiCandidates, targets.places);
-  const pickedRestaurants = pickWithSpread(restaurantCandidates, targets.restaurants);
+  const pickedSights = pickWithSpread(sightCandidates, targets.sights);
+  const pickedFancy = pickWithSpread(fancy, targets.foodFancy);
+  const pickedMid = pickWithSpread(mid, targets.foodMid);
+  const pickedBudget = pickWithSpread(budget, targets.foodBudget);
+  const pickedBars = pickWithSpread(bars, targets.bars);
+  const pickedHotels = pickWithSpread(hotels, targets.hotels);
   const pickedHikes = pickWithSpread(hikeCandidates, hikeTarget);
 
-  const practicalIds = places.filter(isPractical).map((p) => p.id);
+  const practicalIds = places.filter((p) => p.type === "practical").map((p) => p.id);
 
   return {
-    placeIds: pickedPlaces.map((p) => p.id),
+    // placeIds = alles "Ort-gebundene" außer Gastro (Sehenswertes, Hotels, Events)
+    placeIds: [...pickedSights.map((p) => p.id), ...pickedHotels.map((p) => p.id), ...eventIds],
     hikeIds: pickedHikes.map((h) => h.id),
-    restaurantIds: pickedRestaurants.map((p) => p.id),
+    // restaurantIds = Gastro (Restaurants aller Preisklassen + Bars)
+    restaurantIds: [
+      ...pickedFancy.map((p) => p.id),
+      ...pickedMid.map((p) => p.id),
+      ...pickedBudget.map((p) => p.id),
+      ...pickedBars.map((p) => p.id),
+    ],
     practicalIds,
     targets,
     debug: {
-      poiCandidates: poiCandidates.length,
-      restaurantCandidates: restaurantCandidates.length,
-      hikeCandidates: hikeCandidates.length,
+      sights: pickedSights.length,
+      food: { fancy: pickedFancy.length, mid: pickedMid.length, budget: pickedBudget.length },
+      bars: pickedBars.length,
+      hotels: pickedHotels.length,
+      hikes: pickedHikes.length,
       days: tripDays(q),
-      pace: q.pace,
     },
   };
 }

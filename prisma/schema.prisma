@@ -284,6 +284,9 @@ model GuideRequest {
   /// Nachträgliche Nutzer-Wünsche (z. B. "mehr Wandern"), Array von
   /// { presets: string[], text: string, createdAt: string }
   adjustments   Json          @default("[]")
+  /// Pro-Bereich-Feintuning (mehr/weniger je Bereich), Record<areaKey, delta>
+  /// z. B. { "hikes": 2, "foodBudget": 3, "sights": -1 }
+  areaCounts    Json          @default("{}")
   status        RequestStatus @default(pending)
   error         String?
   createdAt     DateTime      @default(now()) @map("created_at")

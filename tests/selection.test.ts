@@ -134,21 +134,28 @@ describe("harte Filter", () => {
   });
 });
 
-describe("Zielmengen (4.2)", () => {
-  it("liegen in den geforderten Spannen", () => {
-    const targets = computeTargets(makeQuestionnaire());
-    expect(targets.places).toBeGreaterThanOrEqual(30);
-    expect(targets.places).toBeLessThanOrEqual(70);
-    expect(targets.hikes).toBeGreaterThanOrEqual(4);
-    expect(targets.hikes).toBeLessThanOrEqual(12);
-    expect(targets.restaurants).toBeGreaterThanOrEqual(12);
-    expect(targets.restaurants).toBeLessThanOrEqual(35);
+describe("Zielmengen je Bereich (4.2)", () => {
+  it("Essen-Standard: wenige gehobene, mehr mittlere/günstige", () => {
+    const t = computeTargets(makeQuestionnaire());
+    expect(t.foodFancy).toBeLessThanOrEqual(2);
+    expect(t.foodBudget).toBeGreaterThan(t.foodFancy);
+    expect(t.foodMid).toBeGreaterThan(t.foodFancy);
+    expect(t.sights).toBeGreaterThan(0);
+    expect(t.hotels).toBeGreaterThan(0);
+  });
+
+  it("Pro-Bereich-Feintuning erhöht/senkt gezielt", () => {
+    const base = computeTargets(makeQuestionnaire());
+    const more = computeTargets(makeQuestionnaire(), undefined, { hikes: 3, foodBudget: 4 });
+    expect(more.hikes).toBe(base.hikes + 3);
+    expect(more.foodBudget).toBe(base.foodBudget + 4);
+    expect(more.sights).toBe(base.sights); // andere Bereiche unverändert
   });
 
   it("skaliert mit dem Reisetempo", () => {
     const relaxed = computeTargets(makeQuestionnaire({ pace: "entspannt" }));
     const packed = computeTargets(makeQuestionnaire({ pace: "vollgepackt" }));
-    expect(packed.places).toBeGreaterThanOrEqual(relaxed.places);
+    expect(packed.sights).toBeGreaterThanOrEqual(relaxed.sights);
   });
 });
 

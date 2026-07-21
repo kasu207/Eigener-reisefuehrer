@@ -3,8 +3,11 @@ import { prisma } from "@/lib/db";
 import { guideContentSchema, type Chapter } from "@/lib/guide-content";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import { qrDataUri } from "@/lib/qr";
+import { foodTier } from "@/lib/selection";
+import { parseAreaCounts } from "@/lib/areas";
 import GuideMap, { type MapMarker } from "@/components/GuideMap";
 import AdjustPanel from "@/components/AdjustPanel";
+import FineTunePanel from "@/components/FineTunePanel";
 import ShareBox from "@/components/ShareBox";
 import GuideProgress from "@/components/GuideProgress";
 import EditableText from "@/components/EditableText";
@@ -27,15 +30,26 @@ export const dynamic = "force-dynamic";
 type PlaceWithImages = Place & { images: DbImage[] };
 type HikeWithImages = Hike & { images: DbImage[] };
 
-/** Feste Ort-Unterabschnitte – immer in gleicher Reihenfolge und Benennung. */
-const SUBSECTIONS: { title: string; types: PlaceWithImages["type"][] }[] = [
-  { title: "Sehenswürdigkeiten & Ausblicke", types: ["village", "sight", "viewpoint"] },
-  { title: "Baden & Seezugang", types: ["beach"] },
-  { title: "Essen & Trinken", types: ["restaurant"] },
-  { title: "Ausgehen & Aperitivo", types: ["bar"] },
-  { title: "Unterkunft", types: ["hotel"] },
-  { title: "Veranstaltungen", types: ["event"] },
-  { title: "Praktisches vor Ort", types: ["practical"] },
+/** Feste Ort-Unterabschnitte – immer in gleicher Reihenfolge und Benennung.
+ * "food" wird nach Preisklassen (gehoben/mittel/günstig) unterteilt. */
+type SubSection =
+  | { kind: "types"; title: string; types: PlaceWithImages["type"][] }
+  | { kind: "food" };
+const SUBSECTIONS: SubSection[] = [
+  { kind: "types", title: "Sehenswürdigkeiten & Ausblicke", types: ["village", "sight", "viewpoint"] },
+  { kind: "types", title: "Baden & Seezugang", types: ["beach"] },
+  { kind: "food" },
+  { kind: "types", title: "Ausgehen & Aperitivo", types: ["bar"] },
+  { kind: "types", title: "Unterkunft", types: ["hotel"] },
+  { kind: "types", title: "Veranstaltungen", types: ["event"] },
+  { kind: "types", title: "Praktisches vor Ort", types: ["practical"] },
+];
+
+/** Preisklassen-Bänder innerhalb "Essen & Trinken". */
+const FOOD_TIERS: { tier: "fancy" | "mid" | "budget"; title: string }[] = [
+  { tier: "fancy", title: "Gehoben" },
+  { tier: "mid", title: "Mittelklasse" },
+  { tier: "budget", title: "Günstig & Cafés" },
 ];
 
 const TEXT_PLACEHOLDER = "✍️ Euer persönlicher Text entsteht gerade …";
@@ -290,6 +304,31 @@ export default async function GuidePage({
           className="mt-3 leading-relaxed text-neutral-700"
         />
         {SUBSECTIONS.map((sub) => {
+          if (sub.kind === "food") {
+            const foodEntries = chapter.entries.filter(
+              (e) => placeById.get(e.id)?.type === "restaurant"
+            );
+            if (foodEntries.length === 0) return null;
+            return (
+              <div key="food" className="mt-8">
+                <h3 className="font-serif text-xl text-(--color-accent)">Essen & Trinken</h3>
+                {FOOD_TIERS.map(({ tier, title }) => {
+                  const tierEntries = foodEntries.filter(
+                    (e) => foodTier(placeById.get(e.id)?.priceLevel ?? null) === tier
+                  );
+                  if (tierEntries.length === 0) return null;
+                  return (
+                    <div key={tier} className="mt-4">
+                      <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+                        {title}
+                      </h4>
+                      <div className="mt-2 space-y-5">{tierEntries.map(renderPlaceEntry)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
           const entries = chapter.entries.filter((e) => {
             const p = placeById.get(e.id);
             return p && sub.types.includes(p.type);
@@ -387,6 +426,11 @@ export default async function GuidePage({
       {/* Besitzer-Funktionen */}
       {isOwner && (
         <div className="no-print mb-10 space-y-4">
+          <FineTunePanel
+            token={token}
+            areaCounts={parseAreaCounts(guide.guideRequest.areaCounts)}
+            regenerating={regenerating}
+          />
           <AdjustPanel token={token} regenerating={regenerating} />
           <ShareBox
             shareUrl={`${process.env.APP_URL ?? "http://localhost:3000"}/guide/${guide.shareToken}`}
