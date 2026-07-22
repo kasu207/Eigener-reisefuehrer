@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchCommonsImages } from "@/lib/images/search";
+import { searchImages } from "@/lib/images/search";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Suchbegriff fehlt." }, { status: 400 });
   }
   try {
-    const results = await searchCommonsImages(q, 8);
+    const results = await searchImages(q, 10);
     return NextResponse.json({ results });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

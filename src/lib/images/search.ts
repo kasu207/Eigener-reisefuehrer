@@ -13,6 +13,8 @@ export interface ImageCandidate {
   license: string;
   author: string;
   sourceUrl: string;
+  /** Anbieter der Quelle (z. B. "Wikimedia Commons", "Openverse · flickr"). */
+  source?: string;
 }
 
 /** HTML aus den extmetadata-Feldern entfernen (Artist enthält oft <a>-Tags). */
@@ -76,7 +78,37 @@ export async function searchCommonsImages(
       license,
       author: author || "unbekannt (Wikimedia Commons)",
       sourceUrl: info.descriptionurl ?? info.url,
+      source: "Wikimedia Commons",
     });
   }
   return candidates;
+}
+
+/**
+ * Kombinierte Bildersuche über mehrere frei lizenzierte Quellen
+ * (Wikimedia Commons + Openverse). Quellen laufen parallel; fällt eine aus,
+ * liefern die anderen trotzdem. Ergebnisse werden nach fileUrl entdoppelt und
+ * quellenweise verschränkt, damit nicht eine Quelle dominiert.
+ */
+export async function searchImages(query: string, limit = 8): Promise<ImageCandidate[]> {
+  const { searchOpenverseImages } = await import("./openverse");
+  const perSource = Math.max(4, limit);
+  const [commons, openverse] = await Promise.allSettled([
+    searchCommonsImages(query, perSource),
+    searchOpenverseImages(query, perSource),
+  ]);
+  const a = commons.status === "fulfilled" ? commons.value : [];
+  const b = openverse.status === "fulfilled" ? openverse.value : [];
+
+  // verschränken (Commons, Openverse, Commons, …), Duplikate raus
+  const seen = new Set<string>();
+  const merged: ImageCandidate[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    for (const c of [a[i], b[i]]) {
+      if (!c || seen.has(c.fileUrl)) continue;
+      seen.add(c.fileUrl);
+      merged.push(c);
+    }
+  }
+  return merged;
 }

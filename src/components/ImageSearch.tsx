@@ -10,6 +10,7 @@ interface Candidate {
   license: string;
   author: string;
   sourceUrl: string;
+  source?: string;
 }
 
 /**
@@ -49,7 +50,7 @@ export default function ImageSearch({
 
   return (
     <div className="rounded border border-neutral-200 p-3">
-      <p className="mb-2 text-sm font-medium">Bilder suchen (Wikimedia Commons)</p>
+      <p className="mb-2 text-sm font-medium">Bilder suchen (Wikimedia Commons + Openverse)</p>
       <div className="flex gap-2">
         <input
           value={query}
@@ -92,6 +93,11 @@ export default function ImageSearch({
               <p className="truncate text-xs text-neutral-400" title={`${c.license} · ${c.author}`}>
                 {c.license} · {c.author}
               </p>
+              {c.source && (
+                <p className="truncate text-[10px] text-neutral-400" title={c.source}>
+                  {c.source}
+                </p>
+              )}
               <form action={addImage} className="mt-1">
                 <input type="hidden" name="placeId" value={placeId} />
                 <input type="hidden" name="fileUrl" value={c.fileUrl} />
