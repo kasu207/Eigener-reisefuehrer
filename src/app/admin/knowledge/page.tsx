@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import KnowledgeUpload from "@/components/admin/KnowledgeUpload";
 import {
   addKnowledgeUrl,
+  addKnowledgeUrls,
   deleteKnowledgeDocument,
   reanalyzeKnowledgeDocument,
   approveKnowledgeDocument,
@@ -122,6 +123,38 @@ export default async function KnowledgePage({
           <input name="title" placeholder="Titel (leer = URL)" className={inputCls} />
           <input name="url" type="url" placeholder="https://..." className={inputCls} required />
           <button className="rounded bg-(--color-ink) px-4 py-2 text-white">Verlinken</button>
+        </form>
+
+        <form
+          action={addKnowledgeUrls}
+          className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-4 text-sm md:col-span-2"
+        >
+          <h3 className="font-serif text-lg">Mehrere Blogs auf einmal anzapfen</h3>
+          <p className="text-xs text-neutral-500">
+            Eine URL pro Zeile (max. 30). Je Quelle wird ein Eintrag angelegt und
+            von der KI eingelesen &amp; paraphrasiert (kein wörtliches Kopieren).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <select name="regionId" className={inputCls}>
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+            <select name="kind" className={inputCls}>
+              <option value="blog">Blog</option>
+              <option value="article">Artikel</option>
+            </select>
+          </div>
+          <textarea
+            name="urls"
+            rows={4}
+            placeholder={"https://blog-eins.de/comer-see\nhttps://blog-zwei.com/lake-como-tipps"}
+            className={`${inputCls} font-mono text-xs`}
+            required
+          />
+          <button className="rounded bg-(--color-ink) px-4 py-2 text-white">
+            Alle einlesen
+          </button>
         </form>
       </section>
 

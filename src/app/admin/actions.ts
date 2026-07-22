@@ -18,6 +18,7 @@ import type {
   SourceType,
   InfoFormat,
   SpotCategory,
+  DocumentKind,
 } from "@prisma/client";
 
 /** Server Actions für das Admin-CRUD (Anforderung 4.5) und die
@@ -496,6 +497,44 @@ export async function addKnowledgeUrl(fd: FormData) {
     },
   });
   revalidatePath("/admin/knowledge");
+}
+
+/**
+ * Mehrere Blogs/Artikel auf einmal anzapfen: ein Textfeld mit einer URL pro
+ * Zeile. Je URL wird eine Wissensquelle angelegt; der Worker holt und
+ * paraphrasiert sie anschließend (analyzeUrl). Praktisch, um schnell viele
+ * Blogs einzulesen.
+ */
+export async function addKnowledgeUrls(fd: FormData) {
+  const regionId = str(fd, "regionId");
+  const kind = str(fd, "kind") === "article" ? "article" : "blog";
+  const urls = str(fd, "urls")
+    .split(/[\s]+/)
+    .map((u) => u.trim())
+    .filter((u) => /^https?:\/\//i.test(u))
+    .slice(0, 30);
+
+  const seen = new Set<string>();
+  let created = 0;
+  for (const url of urls) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const existing = await prisma.knowledgeDocument.findFirst({ where: { regionId, url } });
+    if (existing) continue;
+    await prisma.knowledgeDocument.create({
+      data: {
+        regionId,
+        kind: kind as DocumentKind,
+        title: url,
+        url,
+        status: "uploaded",
+        moderationStatus: "approved",
+      },
+    });
+    created += 1;
+  }
+  revalidatePath("/admin/knowledge");
+  redirect(`/admin/knowledge?ok=${encodeURIComponent(`${created} Blog-Quelle(n) angelegt – werden analysiert.`)}`);
 }
 
 export async function deleteKnowledgeDocument(fd: FormData) {
