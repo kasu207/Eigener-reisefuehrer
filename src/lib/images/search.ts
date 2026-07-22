@@ -85,26 +85,34 @@ export async function searchCommonsImages(
 }
 
 /**
- * Kombinierte Bildersuche über mehrere frei lizenzierte Quellen
- * (Wikimedia Commons + Openverse). Quellen laufen parallel; fällt eine aus,
- * liefern die anderen trotzdem. Ergebnisse werden nach fileUrl entdoppelt und
- * quellenweise verschränkt, damit nicht eine Quelle dominiert.
+ * Kombinierte Bildersuche über mehrere frei lizenzierte Quellen:
+ * - immer: Wikimedia Commons + Openverse (kein API-Key nötig)
+ * - zusätzlich, falls konfiguriert: Pexels (PEXELS_API_KEY),
+ *   Unsplash (UNSPLASH_ACCESS_KEY)
+ * Quellen laufen parallel; fällt eine aus, liefern die anderen trotzdem.
+ * Ergebnisse werden nach fileUrl entdoppelt und quellenweise verschränkt
+ * (Round-Robin), damit nicht eine Quelle dominiert.
  */
 export async function searchImages(query: string, limit = 8): Promise<ImageCandidate[]> {
-  const { searchOpenverseImages } = await import("./openverse");
+  const [{ searchOpenverseImages }, { searchPexelsImages }, { searchUnsplashImages }] =
+    await Promise.all([import("./openverse"), import("./pexels"), import("./unsplash")]);
   const perSource = Math.max(4, limit);
-  const [commons, openverse] = await Promise.allSettled([
+
+  const settled = await Promise.allSettled([
     searchCommonsImages(query, perSource),
     searchOpenverseImages(query, perSource),
+    searchPexelsImages(query, perSource),
+    searchUnsplashImages(query, perSource),
   ]);
-  const a = commons.status === "fulfilled" ? commons.value : [];
-  const b = openverse.status === "fulfilled" ? openverse.value : [];
+  const lists = settled.map((s) => (s.status === "fulfilled" ? s.value : []));
 
-  // verschränken (Commons, Openverse, Commons, …), Duplikate raus
+  // Round-Robin über alle Quellen verschränken, Duplikate (fileUrl) entfernen
   const seen = new Set<string>();
   const merged: ImageCandidate[] = [];
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    for (const c of [a[i], b[i]]) {
+  const maxLen = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < maxLen; i++) {
+    for (const list of lists) {
+      const c = list[i];
       if (!c || seen.has(c.fileUrl)) continue;
       seen.add(c.fileUrl);
       merged.push(c);

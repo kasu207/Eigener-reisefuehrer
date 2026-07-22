@@ -32,6 +32,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       AI_MODE: ${AI_MODE:-live}
+      # Optionale Bildquellen (leer = deaktiviert; Wikimedia + Openverse gehen ohne Key)
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD in .env setzen}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
