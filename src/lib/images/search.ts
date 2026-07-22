@@ -88,14 +88,23 @@ export async function searchCommonsImages(
  * Kombinierte Bildersuche über mehrere frei lizenzierte Quellen:
  * - immer: Wikimedia Commons + Openverse (kein API-Key nötig)
  * - zusätzlich, falls konfiguriert: Pexels (PEXELS_API_KEY),
- *   Unsplash (UNSPLASH_ACCESS_KEY)
+ *   Unsplash (UNSPLASH_ACCESS_KEY), Europeana (EUROPEANA_API_KEY)
  * Quellen laufen parallel; fällt eine aus, liefern die anderen trotzdem.
  * Ergebnisse werden nach fileUrl entdoppelt und quellenweise verschränkt
  * (Round-Robin), damit nicht eine Quelle dominiert.
  */
 export async function searchImages(query: string, limit = 8): Promise<ImageCandidate[]> {
-  const [{ searchOpenverseImages }, { searchPexelsImages }, { searchUnsplashImages }] =
-    await Promise.all([import("./openverse"), import("./pexels"), import("./unsplash")]);
+  const [
+    { searchOpenverseImages },
+    { searchPexelsImages },
+    { searchUnsplashImages },
+    { searchEuropeanaImages },
+  ] = await Promise.all([
+    import("./openverse"),
+    import("./pexels"),
+    import("./unsplash"),
+    import("./europeana"),
+  ]);
   const perSource = Math.max(4, limit);
 
   const settled = await Promise.allSettled([
@@ -103,6 +112,7 @@ export async function searchImages(query: string, limit = 8): Promise<ImageCandi
     searchOpenverseImages(query, perSource),
     searchPexelsImages(query, perSource),
     searchUnsplashImages(query, perSource),
+    searchEuropeanaImages(query, perSource),
   ]);
   const lists = settled.map((s) => (s.status === "fulfilled" ? s.value : []));
 

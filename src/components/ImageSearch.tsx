@@ -51,7 +51,7 @@ export default function ImageSearch({
   return (
     <div className="rounded border border-neutral-200 p-3">
       <p className="mb-2 text-sm font-medium">
-        Bilder suchen (freie Quellen: Wikimedia Commons, Openverse, optional Pexels/Unsplash)
+        Bilder suchen (freie Quellen: Wikimedia Commons, Openverse, optional Pexels/Unsplash/Europeana)
       </p>
       <div className="flex gap-2">
         <input
