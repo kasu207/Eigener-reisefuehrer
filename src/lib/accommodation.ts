@@ -89,6 +89,15 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
           centerLat: region.centerLat,
           centerLng: region.centerLng,
         });
+        // Nur Kandidaten, bei denen die KI selbst zuversichtlich ist ("hoch"/
+        // "mittel"), werden automatisch verifiziert und erscheinen sofort im
+        // Guide. "niedrig" heißt: die KI ist sich selbst nicht sicher, dass
+        // der Ort so wirklich existiert – das darf NIE automatisch als
+        // geprüfte Tatsache landen (sonst genau der Fall: ein Guide-Text, der
+        // einräumt, der Ort sei nicht sicher auffindbar). Solche Kandidaten
+        // werden stattdessen als Entwurf abgelegt, damit ein Mensch sie im
+        // Admin vor der Freigabe prüft – wie bei allen anderen KI-Vorschlägen.
+        const autoVerified = c.confidence !== "niedrig";
         const place = await prisma.place.create({
           data: {
             regionId: region.id,
@@ -100,11 +109,11 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
             address: c.address ?? "",
             tags: [],
             priceLevel: c.priceLevel ?? undefined,
-            editorNotes: `[Automatisch zum Unterkunfts-Ort recherchiert · Sicherheit real: ${c.confidence} · bitte gelegentlich prüfen] ${c.note}${
-              c.sourceUrl ? ` (Quelle: ${c.sourceTitle || c.sourceUrl})` : ""
-            }`,
-            status: "verified",
-            lastVerifiedAt: new Date(),
+            editorNotes: `[Automatisch zum Unterkunfts-Ort recherchiert · Sicherheit real: ${c.confidence}${
+              autoVerified ? " · bitte gelegentlich prüfen" : " · UNSICHER, bitte vor Freigabe prüfen"
+            }] ${c.note}${c.sourceUrl ? ` (Quelle: ${c.sourceTitle || c.sourceUrl})` : ""}`,
+            status: autoVerified ? "verified" : "draft",
+            lastVerifiedAt: autoVerified ? new Date() : null,
           },
         });
         if (c.sourceUrl) {
