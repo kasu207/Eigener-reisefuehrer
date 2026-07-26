@@ -3,6 +3,7 @@ import { questionnaireSchema, INTEREST_LABELS } from "./questionnaire";
 import { geocodePlace } from "./geocode";
 import { researchLocalityPlaces } from "./ai/research-locality";
 import { rateLimit } from "./rate-limit";
+import { localityMatchesLabel } from "./areas";
 import type { PlaceType } from "@prisma/client";
 
 /**
@@ -39,16 +40,22 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
 
   const interests = q.interests.map((i) => INTEREST_LABELS[i.key]);
 
+  // Alle bereits vorhandenen Orte der Region EINMAL laden: Der Abgleich mit dem
+  // Freitext-Ort/Adresse aus dem Fragebogen läuft tolerant (localityMatchesLabel),
+  // nicht als exakter String-Vergleich – sonst würde z. B. "Via Plinio 20, Torno"
+  // nie zum bereits gespeicherten Ort "Torno" passen und die (kostenpflichtige)
+  // Recherche würde fälschlich für jeden Guide erneut anlaufen.
+  // Läuft mit, während wir in diesem Aufruf neue Orte anlegen – so erkennt ein
+  // zweiter Anker, der denselben Ort meint (andere Formulierung), sofort den
+  // gerade erst angelegten Bestand statt ein zweites Mal zu recherchieren.
+  const allPlaces = await prisma.place.findMany({
+    where: { regionId: region.id, status: "verified" },
+    select: { name: true, locality: true },
+  });
+
   for (const locality of localities) {
     try {
-      const existing = await prisma.place.findMany({
-        where: {
-          regionId: region.id,
-          status: "verified",
-          locality: { equals: locality, mode: "insensitive" },
-        },
-        select: { name: true },
-      });
+      const existing = allPlaces.filter((p) => localityMatchesLabel(p.locality, locality));
       // Nur EINMAL recherchieren: sobald der Ort irgendeinen geprüften Eintrag
       // hat, nie wieder automatisch (Kostenschutz – jede Websuche kostet).
       if (existing.length > 0) continue;
@@ -109,6 +116,7 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
             },
           });
         }
+        allPlaces.push({ name: c.name, locality });
         created += 1;
       }
       console.log(`[accommodation] "${locality}": ${created} Orte recherchiert und gespeichert.`);

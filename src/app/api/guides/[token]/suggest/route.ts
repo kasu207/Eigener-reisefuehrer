@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
-import { AREA_KEYS, areaDefaults, placeMatchesArea, REGION_WIDE_KEY } from "@/lib/areas";
+import {
+  AREA_KEYS,
+  areaDefaults,
+  placeMatchesArea,
+  REGION_WIDE_KEY,
+  localityMatchesLabel,
+} from "@/lib/areas";
 import { questionnaireSchema, INTEREST_LABELS } from "@/lib/questionnaire";
 import { guideContentSchema } from "@/lib/guide-content";
 import { researchPlaceCandidates } from "@/lib/ai/research-place";
@@ -69,13 +75,17 @@ export async function POST(
   });
   for (const p of verified) {
     const key = p.locality?.trim() || REGION_WIDE_KEY;
-    if (key === locality && placeMatchesArea(p.type, p.priceLevel, area)) exclude.add(p.name);
+    if (localityMatchesLabel(key, locality) && placeMatchesArea(p.type, p.priceLevel, area)) {
+      exclude.add(p.name);
+    }
   }
   // zusätzlich die im Guide gezeigten Namen dieses Bereichs
   const byId = new Map(verified.map((p) => [p.id, p]));
   for (const id of shownIds) {
     const p = byId.get(id);
-    if (p && (p.locality?.trim() || REGION_WIDE_KEY) === locality) exclude.add(p.name);
+    if (p && localityMatchesLabel(p.locality?.trim() || REGION_WIDE_KEY, locality)) {
+      exclude.add(p.name);
+    }
   }
 
   const def = areaDefaults(area);

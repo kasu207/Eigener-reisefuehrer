@@ -53,6 +53,50 @@ export function parseLocalityCounts(raw: unknown): LocalityCounts {
 /** Sammelbegriff für Orte ohne eigene Stadt (regionsweite Highlights). */
 export const REGION_WIDE_KEY = "Rund um den See";
 
+/**
+ * Locality-Abgleich, tolerant gegenüber Freitext-Eingaben.
+ *
+ * Das Unterkunfts-/Wunsch-Ort-Feld im Fragebogen ist Freitext ("Ort ODER
+ * Adresse", z. B. "Via Plinio 20, Torno" oder "Torno, Comer See"), während
+ * `Place.locality` ein kurzer, kanonischer Ortsname ist (z. B. "Torno"). Ein
+ * exakter String-Vergleich lässt beide fast nie zusammenfinden – dann findet
+ * die Ort-Zuordnung (Torno-Kapitel, "+"-Bestand) STILL nichts, obwohl Daten
+ * vorhanden sind. Deshalb: Treffer, wenn der kanonische Ortsname als eigenes
+ * Wort im Freitext vorkommt (oder beide nach Normalisierung gleich sind).
+ */
+export function normalizeLocalityText(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // Akzente entfernen
+    .trim();
+}
+
+export function localityMatchesLabel(placeLocality: string, freeTextLabel: string): boolean {
+  const loc = normalizeLocalityText(placeLocality);
+  const label = normalizeLocalityText(freeTextLabel);
+  if (!loc || !label) return false;
+  if (loc === label) return true;
+  // Wortgrenzen-Suche, damit "Torno" nicht fälschlich in "Tornoletta" matched
+  const escaped = loc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, "iu");
+  return re.test(label);
+}
+
+/**
+ * Findet unter bereits bekannten Ortsnamen den kanonischen Namen, der zu
+ * einem Freitext-Label passt (z. B. "Torno" für "Via Plinio 20, Torno").
+ * Neue, noch unbekannte Orte fallen auf das (getrimmte) Label zurück.
+ */
+export function resolveCanonicalLocality(
+  existingLocalities: string[],
+  label: string
+): string {
+  const trimmed = label.trim();
+  const hit = existingLocalities.find((loc) => loc.trim() && localityMatchesLabel(loc, trimmed));
+  return hit ?? trimmed;
+}
+
 /** Vorgaben zum Anlegen eines neuen Ortes für einen Bereich (Typ + Preisklasse). */
 export function areaDefaults(area: AreaKey): { type: string; priceLevel: number | null; label: string } {
   switch (area) {

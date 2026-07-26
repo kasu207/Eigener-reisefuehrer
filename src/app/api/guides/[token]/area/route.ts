@@ -8,6 +8,7 @@ import {
   parseLocalityCounts,
   placeMatchesArea,
   REGION_WIDE_KEY,
+  localityMatchesLabel,
   type AreaKey,
 } from "@/lib/areas";
 import {
@@ -143,7 +144,7 @@ export async function POST(
     // Alle geprüften Einträge dieses Orts + Bereichs, die die harten Filter bestehen
     const pool = dbPlaces.filter((p) => {
       if (removedIds.has(p.id)) return false;
-      if (localityKey(p) !== locality) return false;
+      if (!localityMatchesLabel(localityKey(p), locality)) return false;
       if (!placeMatchesArea(p.type, p.priceLevel, area)) return false;
       const sp = toSelectablePlace(p);
       return p.type === "restaurant" || p.type === "bar"

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
-import { AREA_KEYS, areaDefaults, parseLocalityCounts } from "@/lib/areas";
+import { AREA_KEYS, areaDefaults, parseLocalityCounts, resolveCanonicalLocality } from "@/lib/areas";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import { geocodePlace } from "@/lib/geocode";
 import type { PlaceType } from "@prisma/client";
@@ -61,7 +61,22 @@ export async function POST(
   const def = areaDefaults(d.area);
   // "Rund um den See" = regionsweit => leere Stadt
   const REGION_WIDE = "Rund um den See";
-  const placeLocality = localityKey === REGION_WIDE ? "" : localityKey;
+  let placeLocality = "";
+  if (localityKey !== REGION_WIDE) {
+    // Kanonischen Ortsnamen wiederverwenden, falls der Ort schon existiert
+    // (z. B. "Torno" statt der frei getippten Adresse aus dem Fragebogen) –
+    // sonst würden neue Orte unter einem anderen Namen abgelegt und nie mit
+    // den bestehenden zusammengeführt (Karte, "+"-Bestand, Kapitel-Zuordnung).
+    const existing = await prisma.place.findMany({
+      where: { regionId: region.id },
+      select: { locality: true },
+      distinct: ["locality"],
+    });
+    placeLocality = resolveCanonicalLocality(
+      existing.map((p) => p.locality).filter(Boolean),
+      localityKey
+    );
+  }
 
   // Koordinaten ermitteln (Fallback: Regions-Mitte)
   let lat = region.centerLat;

@@ -15,6 +15,7 @@ import {
   placeMatchesArea,
   REGION_WIDE_KEY,
   AREA_KEYS,
+  localityMatchesLabel,
 } from "./areas";
 import {
   generateChapter,
@@ -293,10 +294,9 @@ async function prepareGuideData(
   // GARANTIERT als erstes Kapitel gebaut (mit Ortsporträt + Umgebung) – hier
   // entfernen, damit er nicht zusätzlich als gewöhnliches Kapitel erscheint.
   const accLabel = (q.accommodation.label ?? "").trim();
-  const accLower = accLabel.toLowerCase();
   if (accLabel) {
     for (const [town] of [...townGroups.entries()]) {
-      if (town.toLowerCase() === accLower) townGroups.delete(town);
+      if (localityMatchesLabel(town, accLabel)) townGroups.delete(town);
     }
   }
 
@@ -357,7 +357,7 @@ async function prepareGuideData(
   // eigenes erstes Kapitel (Ortsporträt + Orte im Ort + nächstgelegene Ziele);
   // weitere Anker-Orte nur, wenn es lohnende Ziele in der Nähe gibt.
   const alreadyShown = new Set<string>([...selectedTownPlaceIds, ...selection.practicalIds]);
-  const townKeysLower = [...townGroups.keys()].map((t) => t.toLowerCase());
+  const townKeys = [...townGroups.keys()];
 
   // nächstgelegene geprüfte Orte um einen Punkt (Umkreis, ohne bereits Gezeigtes)
   const nearbyPlaces = (lat: number, lng: number, exclude: Set<string>) =>
@@ -388,7 +388,7 @@ async function prepareGuideData(
     // Engine getroffenen), damit frisch recherchierte Orte garantiert erscheinen.
     const localPlaces = places
       .filter((p) => {
-        if (localityOf(p).toLowerCase() !== accLower) return false;
+        if (!localityMatchesLabel(localityOf(p), accLabel)) return false;
         const sp = selectableById.get(p.id);
         if (!sp) return true; // z. B. Praktisches ohne Score trotzdem zeigen
         return p.type === "restaurant" || p.type === "bar"
@@ -419,7 +419,7 @@ async function prepareGuideData(
   }
 
   // 2) Weitere Wunsch-Orte (Anker) – nur wenn es Umgebung gibt, ohne Dubletten.
-  const seenAnchorLabels = new Set<string>([accLower]);
+  const seenAnchorLabels = new Set<string>([accLabel.toLowerCase()]);
   for (const anchor of q.anchors ?? []) {
     const label = (anchor.label ?? "").trim();
     const labelLower = label.toLowerCase();
@@ -427,7 +427,7 @@ async function prepareGuideData(
     if (seenAnchorLabels.has(labelLower)) continue;
     seenAnchorLabels.add(labelLower);
     // Hat der Anker-Ort ein eigenes Ort-Kapitel, ist er bereits abgedeckt
-    if (townKeysLower.includes(labelLower)) continue;
+    if (townKeys.some((t) => localityMatchesLabel(t, label))) continue;
 
     const nearby = nearbyPlaces(anchor.lat, anchor.lng, alreadyShown);
     if (nearby.length === 0) continue;
