@@ -1,8 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import * as z from "zod/v4";
 import { isMock } from "./mock";
 import { AI_MODEL } from "./model";
+import { aiClient, safetySchema, UnsafeContentError } from "./common";
+import { PLACE_TYPES } from "../place-types";
 
 /**
  * KI-gestützte Ort-VORSCHLÄGE für die Redaktion (Kuratierungs-Hilfe).
@@ -15,28 +16,12 @@ import { AI_MODEL } from "./model";
  */
 
 const MODEL = AI_MODEL;
-const client = new Anthropic({ maxRetries: 3 });
 
-// Muss zu prisma enum PlaceType passen
-const PLACE_TYPES = [
-  "village",
-  "sight",
-  "viewpoint",
-  "beach",
-  "restaurant",
-  "bar",
-  "hotel",
-  "event",
-  "practical",
-] as const;
 export type SuggestPlaceType = (typeof PLACE_TYPES)[number];
 
 const suggestionSchema = z.object({
-  // Sicherheitsprüfung wie bei der Wissensanalyse
-  safety: z.object({
-    acceptable: z.boolean(),
-    reason: z.string(),
-  }),
+  // Sicherheitsprüfung wie bei der Wissensanalyse (gemeinsames Schema)
+  safety: safetySchema,
   suggestions: z.array(
     z.object({
       name: z.string(),
@@ -63,13 +48,8 @@ export interface PlaceSuggestion {
   confidence: "hoch" | "mittel" | "niedrig";
 }
 
-/** Wird geworfen, wenn die Sicherheitsprüfung anschlägt. */
-export class UnsafeSuggestionError extends Error {
-  constructor(public reason: string) {
-    super(`Vorschlag abgelehnt: ${reason}`);
-    this.name = "UnsafeSuggestionError";
-  }
-}
+/** Gemeinsame Ablehnungs-Fehlerklasse (Sicherheitsprüfung). */
+export { UnsafeContentError as UnsafeSuggestionError };
 
 const SYSTEM = `Du bist Rechercheredakteur:in für eine kuratierte Reiseführer-Datenbank.
 
@@ -127,7 +107,7 @@ export async function suggestPlaces(params: {
     .filter(Boolean)
     .join("\n");
 
-  const response = await client.messages.parse({
+  const response = await aiClient.messages.parse({
     model: MODEL,
     max_tokens: 8000,
     system: SYSTEM,
@@ -139,7 +119,7 @@ export async function suggestPlaces(params: {
     throw new Error("Vorschlags-Generierung lieferte kein valides JSON");
   }
   if (!response.parsed_output.safety.acceptable) {
-    throw new UnsafeSuggestionError(response.parsed_output.safety.reason);
+    throw new UnsafeContentError(response.parsed_output.safety.reason);
   }
 
   return {

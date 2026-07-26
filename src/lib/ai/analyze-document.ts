@@ -2,8 +2,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import * as z from "zod/v4";
 import { INTERESTS } from "../questionnaire";
+import { BROWSER_HEADERS } from "../http";
 import { isMock } from "./mock";
 import { AI_MODEL } from "./model";
+import { aiClient, safetySchema, UnsafeContentError } from "./common";
 
 /**
  * Einlesen und Aufbereiten von Wissensquellen (Bücher, Reiseführer, Blogs)
@@ -13,18 +15,14 @@ import { AI_MODEL } from "./model";
  */
 
 const MODEL = AI_MODEL;
-const client = new Anthropic({ maxRetries: 3 });
 
 const chunkSchema = z.object({
   /**
    * Inhalts-Sicherheitsprüfung für die community-gespeiste Wissensdatenbank:
    * Quellen mit unzulässigen Inhalten werden automatisch abgelehnt und
-   * gelangen nie in die Datenbank.
+   * gelangen nie in die Datenbank. (Gemeinsames Schema in common.ts.)
    */
-  safety: z.object({
-    acceptable: z.boolean(),
-    reason: z.string(),
-  }),
+  safety: safetySchema,
   chunks: z.array(
     z.object({
       title: z.string(),
@@ -42,13 +40,8 @@ export interface AnalyzedChunk {
   placeNames: string[];
 }
 
-/** Wird geworfen, wenn die Sicherheitsprüfung eine Quelle ablehnt. */
-export class UnsafeSourceError extends Error {
-  constructor(public reason: string) {
-    super(`Quelle abgelehnt: ${reason}`);
-    this.name = "UnsafeSourceError";
-  }
-}
+/** Gemeinsame Ablehnungs-Fehlerklasse (Sicherheitsprüfung). */
+export { UnsafeContentError as UnsafeSourceError };
 
 const ANALYSIS_SYSTEM = `Du bist Rechercheredakteur:in für eine kuratierte Reiseführer-Datenbank (Region wird genannt).
 
@@ -74,7 +67,7 @@ async function runAnalysis(
   regionName: string,
   content: Anthropic.Messages.ContentBlockParam[]
 ): Promise<{ chunks: AnalyzedChunk[]; inputTokens: number; outputTokens: number }> {
-  const response = await client.messages.parse({
+  const response = await aiClient.messages.parse({
     model: MODEL,
     // 16000 statt 32000: hält die Nicht-Streaming-Anfrage unter der
     // 10-Minuten-Grenze des SDK (sonst "Streaming is required"-Fehler).
@@ -96,7 +89,7 @@ async function runAnalysis(
     throw new Error("Dokument-Analyse lieferte kein valides JSON");
   }
   if (!response.parsed_output.safety.acceptable) {
-    throw new UnsafeSourceError(response.parsed_output.safety.reason);
+    throw new UnsafeContentError(response.parsed_output.safety.reason);
   }
   return {
     chunks: response.parsed_output.chunks,
@@ -146,14 +139,9 @@ export async function analyzeText(regionName: string, text: string) {
 /** Blog/Artikel-URL: HTML holen, grob entschlacken, analysieren. */
 export async function analyzeUrl(regionName: string, url: string) {
   if (isMock()) return mockAnalysis(url);
+  // Realistischer Browser-Header: viele Blogs blocken sonst (403/500)
   const res = await fetch(url, {
-    headers: {
-      // Realistischer Browser-Header: viele Blogs blocken sonst (403/500)
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "de,en;q=0.8",
-    },
+    headers: BROWSER_HEADERS,
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error(`Abruf fehlgeschlagen (${res.status})`);

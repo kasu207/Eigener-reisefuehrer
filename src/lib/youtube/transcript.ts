@@ -12,8 +12,8 @@
  * gesamte Ablauf offline (mit Fixtures) testbar ist.
  */
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
+import { BROWSER_UA as UA } from "../http";
+
 // Öffentlicher InnerTube-Key des ANDROID-Clients (wie von yt-dlp u. a. genutzt).
 const INNERTUBE_KEY = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
 const ANDROID_UA = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip";

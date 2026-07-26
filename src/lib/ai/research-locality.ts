@@ -1,6 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { isMock } from "./mock";
-import { AI_MODEL } from "./model";
+import { runWebResearch } from "./web-research";
+import {
+  RESEARCHABLE_PLACE_TYPES,
+  type ResearchablePlaceType,
+} from "../place-types";
 
 /**
  * Einmalige Ort-Recherche für einen Unterkunfts-/Wunsch-Ort (z. B. Torno).
@@ -10,19 +13,15 @@ import { AI_MODEL } from "./model";
  * Anleger, 1–2 Lokale) – mit Quelle. Ergebnis wird vom Aufrufer geprüft in die
  * DB übernommen und dann für alle künftigen Guides wiederverwendet.
  *
- * Kostenbewusst: kleiner max_uses, kurze pause_turn-Schleife, ein Aufruf pro
- * neuem Ort (der Aufrufer ruft nur bei zu wenig Bestand auf).
+ * Kostenbewusst: kleiner max_uses, kurze pause_turn-Schleife (web-research.ts),
+ * ein Aufruf pro neuem Ort (der Aufrufer ruft nur bei leerem Bestand auf).
  */
-
-const client = new Anthropic({ maxRetries: 2 });
 
 const MAX_WEB_SEARCHES = 3;
 const MAX_PAUSE_TURNS = 2;
 const MAX_PLACES = 5;
 
-// Muss zu prisma enum PlaceType passen (Untermenge, die hier sinnvoll ist).
-const PLACE_TYPES = ["village", "sight", "viewpoint", "beach", "restaurant", "bar", "hotel"] as const;
-export type LocalityPlaceType = (typeof PLACE_TYPES)[number];
+export type LocalityPlaceType = ResearchablePlaceType;
 
 export interface LocalityCandidate {
   name: string;
@@ -52,14 +51,14 @@ HARTE REGELN:
 - Nur Orte, die es WIRKLICH gibt und die IM genannten Ort liegen (mit belegbarer Quelle).
 - Erfinde keine Fakten. Preise/Öffnungszeiten nur, wenn belegt; sonst weglassen.
 - Schlage keine bereits genannten Orte erneut vor.
-- type: einer von village, sight, viewpoint, beach, restaurant, bar, hotel.
+- type: einer von ${RESEARCHABLE_PLACE_TYPES.join(", ")}.
 
 Antworte am Ende mit GENAU einem JSON-Objekt in einem \`\`\`json-Block:
 {
   "places": [
     {
       "name": string,
-      "type": "village"|"sight"|"viewpoint"|"beach"|"restaurant"|"bar"|"hotel",
+      "type": "${RESEARCHABLE_PLACE_TYPES.join('"|"')}",
       "note": string (1-2 Sätze auf Deutsch, was den Ort ausmacht),
       "priceLevel": number (1-4) oder null,
       "address": string oder null,
@@ -70,30 +69,11 @@ Antworte am Ende mit GENAU einem JSON-Objekt in einem \`\`\`json-Block:
   ]
 }`;
 
-function extractJson(text: string): Record<string, unknown> | null {
-  const fence = text.match(/```json\s*([\s\S]*?)```/i);
-  const raw = fence ? fence[1] : text.slice(text.lastIndexOf("{"));
-  try {
-    return JSON.parse(raw.trim());
-  } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(text.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
 function normalize(raw: unknown): LocalityCandidate | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Record<string, unknown>;
   if (typeof c.name !== "string" || !c.name.trim()) return null;
-  const type = PLACE_TYPES.includes(c.type as LocalityPlaceType)
+  const type = (RESEARCHABLE_PLACE_TYPES as readonly string[]).includes(c.type as string)
     ? (c.type as LocalityPlaceType)
     : "sight";
   const pl = Number(c.priceLevel);
@@ -137,7 +117,7 @@ export async function researchLocalityPlaces(
     ];
   }
 
-  const userPrompt = `Finde bis zu ${MAX_PLACES} echte, sehenswerte Orte IM Ort ${input.locality} am ${input.regionName}.
+  const prompt = `Finde bis zu ${MAX_PLACES} echte, sehenswerte Orte IM Ort ${input.locality} am ${input.regionName}.
 
 Reise-Kontext (zur Auswahl, nicht erfinden):
 - Interessen: ${input.interests.join(", ") || "offen"}
@@ -146,33 +126,13 @@ Reise-Kontext (zur Auswahl, nicht erfinden):
 
 Bereits enthalten (NICHT erneut vorschlagen): ${input.excludeNames.join("; ") || "(keine)"}.`;
 
-  const tools: Anthropic.Messages.ToolUnion[] = [
-    { type: "web_search_20260209", name: "web_search", max_uses: MAX_WEB_SEARCHES },
-  ];
-  const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: userPrompt }];
-  const request = {
-    model: AI_MODEL,
-    max_tokens: 3500,
-    system: [
-      { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
-    ],
-    tools,
-    messages,
-  };
-
-  let response = await client.messages.create(request);
-  let guard = 0;
-  while (response.stop_reason === "pause_turn" && guard < MAX_PAUSE_TURNS) {
-    messages.push({ role: "assistant", content: response.content });
-    response = await client.messages.create(request);
-    guard += 1;
-  }
-
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-  const parsed = extractJson(text);
+  const parsed = await runWebResearch({
+    system: SYSTEM_PROMPT,
+    prompt,
+    maxTokens: 3500,
+    maxSearches: MAX_WEB_SEARCHES,
+    maxPauseTurns: MAX_PAUSE_TURNS,
+  });
   if (!parsed) return [];
 
   const rawList = Array.isArray(parsed.places) ? parsed.places : [];

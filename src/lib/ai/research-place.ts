@@ -1,6 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { isMock } from "./mock";
-import { AI_MODEL } from "./model";
+import { runWebResearch } from "./web-research";
 
 /**
  * "+"-Recherche: findet echte, existierende Orte für einen bestimmten Ort +
@@ -9,13 +8,10 @@ import { AI_MODEL } from "./model";
  * Kostenbewusst:
  * - Ein Aufruf holt MEHRERE Kandidaten auf einmal (statt pro Klick neu zu
  *   suchen); der Aufrufer cacht sie und bedient Folge-Klicks daraus.
- * - Websuche gedeckelt (max_uses klein), pause_turn-Schleife kurz.
- * - Der stabile Teil des Prompts läuft als gecachter System-Prompt.
+ * - Websuche gedeckelt, pause_turn-Schleife kurz (siehe web-research.ts).
  * Ergebnisse sind VORSCHLÄGE mit Quelle + Maps-Link zum Verifizieren – sie
  * werden erst nach Bestätigung durch die Nutzer:in als Ort gespeichert.
  */
-
-const client = new Anthropic({ maxRetries: 2 });
 
 // Wie viele Suchen/Runden pro Recherche maximal – bewusst niedrig (Kosten).
 const MAX_WEB_SEARCHES = 2;
@@ -75,26 +71,6 @@ Antworte am Ende mit GENAU einem JSON-Objekt in einem \`\`\`json-Block:
   ]
 }`;
 
-/** JSON-Objekt aus dem Antworttext extrahieren (letztes {...}). */
-function extractJson(text: string): Record<string, unknown> | null {
-  const fence = text.match(/```json\s*([\s\S]*?)```/i);
-  const raw = fence ? fence[1] : text.slice(text.lastIndexOf("{"));
-  try {
-    return JSON.parse(raw.trim());
-  } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(text.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
 function normalizeCandidate(raw: unknown, locality: string): PlaceCandidate | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Record<string, unknown>;
@@ -135,7 +111,7 @@ export async function researchPlaceCandidates(input: ResearchInput): Promise<Pla
     });
   }
 
-  const userPrompt = `Finde bis zu ${CANDIDATES_PER_CALL} echte ${input.areaLabel} in ${input.locality} am ${input.regionName}, die zu diesen Reisenden passen.
+  const prompt = `Finde bis zu ${CANDIDATES_PER_CALL} echte ${input.areaLabel} in ${input.locality} am ${input.regionName}, die zu diesen Reisenden passen.
 
 Reise-Kontext:
 - Interessen: ${input.interests.join(", ") || "offen"}
@@ -146,35 +122,13 @@ Bereits enthalten (NICHT erneut vorschlagen): ${input.excludeNames.join("; ") ||
 
 Liefere so viele passende, reale Orte wie du sicher belegen kannst (bis zu ${CANDIDATES_PER_CALL}), sonst weniger.`;
 
-  const tools: Anthropic.Messages.ToolUnion[] = [
-    { type: "web_search_20260209", name: "web_search", max_uses: MAX_WEB_SEARCHES },
-  ];
-  const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: userPrompt }];
-
-  const request = {
-    model: AI_MODEL,
-    max_tokens: 3000,
-    system: [
-      { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
-    ],
-    tools,
-    messages,
-  };
-
-  let response = await client.messages.create(request);
-  // Server-Tool-Schleife (pause_turn) fortsetzen – kurz halten.
-  let guard = 0;
-  while (response.stop_reason === "pause_turn" && guard < MAX_PAUSE_TURNS) {
-    messages.push({ role: "assistant", content: response.content });
-    response = await client.messages.create(request);
-    guard += 1;
-  }
-
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-  const parsed = extractJson(text);
+  const parsed = await runWebResearch({
+    system: SYSTEM_PROMPT,
+    prompt,
+    maxTokens: 3000,
+    maxSearches: MAX_WEB_SEARCHES,
+    maxPauseTurns: MAX_PAUSE_TURNS,
+  });
   if (!parsed) return [];
 
   const rawList = Array.isArray(parsed.candidates)

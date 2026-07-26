@@ -10,6 +10,7 @@ import {
 } from "@/lib/ai/suggest-places";
 import { extractPlacesFromText, UnsafeExtractionError } from "@/lib/ai/extract-places";
 import { fetchYoutubeTranscript } from "@/lib/youtube/transcript";
+import { BROWSER_HEADERS } from "@/lib/http";
 import type {
   PlaceType,
   Access,
@@ -356,12 +357,7 @@ export async function importSourceFromUrl(fd: FormData) {
   let excerpt = "";
   try {
     const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de,en;q=0.8",
-      },
+      headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(10_000),
     });
     const html = await res.text();

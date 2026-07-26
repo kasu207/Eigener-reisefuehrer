@@ -1,8 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import * as z from "zod/v4";
 import { isMock } from "./mock";
 import { AI_MODEL } from "./model";
+import { aiClient, safetySchema, UnsafeContentError } from "./common";
+import { PLACE_TYPES } from "../place-types";
 
 /**
  * Liest aus einem Fließtext (z. B. einem YouTube-Transkript) die erwähnten,
@@ -14,26 +15,11 @@ import { AI_MODEL } from "./model";
  */
 
 const MODEL = AI_MODEL;
-const client = new Anthropic({ maxRetries: 3 });
 
-const PLACE_TYPES = [
-  "village",
-  "sight",
-  "viewpoint",
-  "beach",
-  "restaurant",
-  "bar",
-  "hotel",
-  "event",
-  "practical",
-] as const;
 export type ExtractPlaceType = (typeof PLACE_TYPES)[number];
 
 const schema = z.object({
-  safety: z.object({
-    acceptable: z.boolean(),
-    reason: z.string(),
-  }),
+  safety: safetySchema,
   places: z.array(
     z.object({
       name: z.string(),
@@ -58,12 +44,8 @@ export interface ExtractedPlace {
   confidence: "hoch" | "mittel" | "niedrig";
 }
 
-export class UnsafeExtractionError extends Error {
-  constructor(public reason: string) {
-    super(`Analyse abgelehnt: ${reason}`);
-    this.name = "UnsafeExtractionError";
-  }
-}
+/** Gemeinsame Ablehnungs-Fehlerklasse (Sicherheitsprüfung). */
+export { UnsafeContentError as UnsafeExtractionError };
 
 const SYSTEM = `Du bist Rechercheredakteur:in für eine kuratierte Reiseführer-Datenbank.
 
@@ -117,7 +99,7 @@ export async function extractPlacesFromText(params: {
     text,
   ].join("\n");
 
-  const response = await client.messages.parse({
+  const response = await aiClient.messages.parse({
     model: MODEL,
     max_tokens: 8000,
     system: SYSTEM,
@@ -129,7 +111,7 @@ export async function extractPlacesFromText(params: {
     throw new Error("Ort-Extraktion lieferte kein valides JSON");
   }
   if (!response.parsed_output.safety.acceptable) {
-    throw new UnsafeExtractionError(response.parsed_output.safety.reason);
+    throw new UnsafeContentError(response.parsed_output.safety.reason);
   }
 
   return {

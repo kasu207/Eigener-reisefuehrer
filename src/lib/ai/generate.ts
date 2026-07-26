@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 // Der SDK-Helper erwartet Zod-v4-Schemata (zod >= 3.25 liefert das Subpath-Export mit)
 import * as z from "zod/v4";
@@ -7,6 +6,7 @@ import { INTEREST_LABELS, tripDays } from "../questionnaire";
 import type { GuideContent, Chapter } from "../guide-content";
 import { isMock, mockPersonalText, mockReason } from "./mock";
 import { AI_MODEL } from "./model";
+import { aiClient } from "./common";
 
 /**
  * KI-Textgenerierung (Anforderung 4.3).
@@ -18,7 +18,7 @@ import { AI_MODEL } from "./model";
 
 const MODEL = AI_MODEL;
 
-const client = new Anthropic({ maxRetries: 3 });
+
 
 export interface TokenUsage {
   inputTokens: number;
@@ -94,7 +94,7 @@ async function callClaude<S extends z.ZodType>(
   userPrompt: string,
   usage: TokenUsage
 ): Promise<z.infer<S>> {
-  const response = await client.messages.parse({
+  const response = await aiClient.messages.parse({
     model: MODEL,
     max_tokens: 16000,
     // Prompt-Caching: Der stabile Systemprompt wird pro Guide über viele
