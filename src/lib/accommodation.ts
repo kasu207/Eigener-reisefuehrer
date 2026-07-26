@@ -4,6 +4,7 @@ import { geocodePlace } from "./geocode";
 import { researchLocalityPlaces } from "./ai/research-locality";
 import { rateLimit } from "./rate-limit";
 import { localityMatchesLabel } from "./areas";
+import { describeAiError } from "./ai/common";
 import type { PlaceType } from "@prisma/client";
 
 /**
@@ -122,7 +123,11 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
       console.log(`[accommodation] "${locality}": ${created} Orte recherchiert und gespeichert.`);
     } catch (e) {
       // Recherche darf die Generierung nie blockieren – nur loggen und weiter.
-      console.error(`[accommodation] Recherche für "${locality}" fehlgeschlagen:`, e);
+      console.error(
+        `[accommodation] Recherche für "${locality}" fehlgeschlagen:`,
+        describeAiError(e),
+        e
+      );
     }
   }
 }

@@ -12,6 +12,7 @@ import {
 import { questionnaireSchema, INTEREST_LABELS } from "@/lib/questionnaire";
 import { guideContentSchema } from "@/lib/guide-content";
 import { researchPlaceCandidates } from "@/lib/ai/research-place";
+import { describeAiError } from "@/lib/ai/common";
 import {
   researchCacheKey,
   takeCachedCandidate,
@@ -121,7 +122,10 @@ export async function POST(
     putCachedCandidates(cacheKey, rest);
     return NextResponse.json({ ok: true, candidate: first, area, locality });
   } catch (e) {
-    console.error("[suggest] Recherche fehlgeschlagen:", e);
-    return NextResponse.json({ error: "Recherche fehlgeschlagen." }, { status: 502 });
+    const reason = describeAiError(e);
+    console.error("[suggest] Recherche fehlgeschlagen:", reason, e);
+    // Besitzer-only-Endpoint: die knappe Ursache (z. B. Budget-/Ratenlimit)
+    // darf hier ruhig mit ausgegeben werden, statt in den Server-Logs zu verschwinden.
+    return NextResponse.json({ error: `Recherche fehlgeschlagen: ${reason}` }, { status: 502 });
   }
 }
