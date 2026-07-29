@@ -137,11 +137,12 @@ export function scorePlace(
   mods: SelectionModifiers = emptyModifiers()
 ): number {
   let score = p.qualityScore; // 1-5
+  const placeTags = new Set(p.tags.map((t) => t.toLowerCase()));
 
   for (const interest of q.interests) {
     const w = interestWeight(q, interest.key) + (mods.interestBoosts[interest.key] ?? 0);
     const tags = INTEREST_TAGS[interest.key];
-    const tagMatches = p.tags.filter((t) => tags.includes(t.toLowerCase())).length;
+    const tagMatches = tags.reduce((sum, t) => sum + (placeTags.has(t.toLowerCase()) ? 1 : 0), 0);
     score += Math.min(tagMatches, 2) * w;
     const types = INTEREST_TYPES[interest.key];
     if (types?.includes(p.type)) score += w;
@@ -152,7 +153,7 @@ export function scorePlace(
   for (const [key, boost] of Object.entries(mods.interestBoosts)) {
     if (q.interests.some((i) => i.key === key)) continue;
     const tags = INTEREST_TAGS[key as Interest] ?? [];
-    const tagMatches = p.tags.filter((t) => tags.includes(t.toLowerCase())).length;
+    const tagMatches = tags.reduce((sum, t) => sum + (placeTags.has(t.toLowerCase()) ? 1 : 0), 0);
     score += Math.min(tagMatches, 2) * boost;
     const types = INTEREST_TYPES[key as Interest];
     if (types?.includes(p.type)) score += boost;
@@ -212,6 +213,7 @@ export function scoreHike(
 /**
  * Geografische Streuung: greedy Auswahl, die bereits gewählte Orte
  * leicht bestraft, wenn ein Kandidat sehr nah an ihnen liegt.
+ * Optimiert: speichert Koordinaten statt Array-Filter zu nutzen.
  */
 function pickWithSpread<T extends { lat: number; lng: number }>(
   candidates: Array<{ item: T; score: number }>,
@@ -219,22 +221,28 @@ function pickWithSpread<T extends { lat: number; lng: number }>(
 ): T[] {
   const sorted = [...candidates].sort((a, b) => b.score - a.score);
   const picked: T[] = [];
+  const pickedCoords: Array<[number, number]> = [];
   const pool = [...sorted];
   while (picked.length < count && pool.length > 0) {
     let bestIdx = 0;
     let bestScore = -Infinity;
     for (let i = 0; i < pool.length; i++) {
       const c = pool[i];
-      const nearPenalty = picked.filter(
-        (p) => haversineKm(p.lat, p.lng, c.item.lat, c.item.lng) < 2
-      ).length;
+      let nearPenalty = 0;
+      for (const [lat, lng] of pickedCoords) {
+        if (haversineKm(lat, lng, c.item.lat, c.item.lng) < 2) {
+          nearPenalty++;
+        }
+      }
       const eff = c.score - nearPenalty * 1.5;
       if (eff > bestScore) {
         bestScore = eff;
         bestIdx = i;
       }
     }
-    picked.push(pool[bestIdx].item);
+    const picked_item = pool[bestIdx].item;
+    picked.push(picked_item);
+    pickedCoords.push([picked_item.lat, picked_item.lng]);
     pool.splice(bestIdx, 1);
   }
   return picked;
@@ -294,11 +302,17 @@ export function selectContent(
     )
   );
 
-  // Gastronomie nach Preisklasse getrennt
-  const restaurants = places.filter((p) => p.type === "restaurant" && restaurantPassesHardFilters(p, q));
-  const fancy = scored(restaurants.filter((p) => foodTier(p.priceLevel) === "fancy"));
-  const mid = scored(restaurants.filter((p) => foodTier(p.priceLevel) === "mid"));
-  const budget = scored(restaurants.filter((p) => foodTier(p.priceLevel) === "budget"));
+  // Gastronomie: Single-Pass-Gruppierung statt mehrfacher Iterationen
+  const fancyByTier = { fancy: [] as SelectablePlace[], mid: [] as SelectablePlace[], budget: [] as SelectablePlace[] };
+  for (const p of places) {
+    if (p.type === "restaurant" && restaurantPassesHardFilters(p, q)) {
+      const tier = foodTier(p.priceLevel);
+      fancyByTier[tier].push(p);
+    }
+  }
+  const fancy = scored(fancyByTier.fancy);
+  const mid = scored(fancyByTier.mid);
+  const budget = scored(fancyByTier.budget);
 
   const bars = scored(places.filter((p) => p.type === "bar" && restaurantPassesHardFilters(p, q)));
   const hotels = scored(places.filter((p) => p.type === "hotel" && placePassesHardFilters(p, q)));
