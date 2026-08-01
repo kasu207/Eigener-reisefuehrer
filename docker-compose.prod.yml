@@ -4,7 +4,9 @@
 
 services:
   db:
-    image: postgres:16
+    # Postgres 16 mit pgvector (semantische Suche Wissensdatenbank);
+    # Datenvolume bleibt kompatibel.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: reisefuehrer
@@ -32,6 +34,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       AI_MODE: ${AI_MODE:-live}
+      # Embeddings für semantische Wissensdatenbank-Suche (leer = Tag-Fallback)
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      VOYAGE_EMBED_MODEL: ${VOYAGE_EMBED_MODEL:-voyage-3.5}
       # Optionale Bildquellen (leer = deaktiviert; Wikimedia + Openverse gehen ohne Key)
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
@@ -62,6 +67,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       AI_MODE: ${AI_MODE:-live}
+      # Embeddings für semantische Wissensdatenbank-Suche (leer = Tag-Fallback)
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      VOYAGE_EMBED_MODEL: ${VOYAGE_EMBED_MODEL:-voyage-3.5}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
       DATA_RETENTION_MONTHS: ${DATA_RETENTION_MONTHS:-12}

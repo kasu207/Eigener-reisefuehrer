@@ -2,12 +2,17 @@ generator client {
   provider = "prisma-client-js"
   // "native" für lokale Entwicklung, Debian-Target für das Docker-Image
   // (node:22-bookworm-slim => OpenSSL 3)
-  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  binaryTargets    = ["native", "debian-openssl-3.0.x"]
+  // Für die pgvector-Extension (semantische Suche in der Wissensdatenbank)
+  previewFeatures  = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // pgvector: Embedding-Spalten für semantisches Matching der Wissens-Notizen.
+  // Braucht ein Postgres-Image mit pgvector (docker-compose: pgvector/pgvector).
+  extensions = [vector]
 }
 
 enum PlaceType {
@@ -114,7 +119,7 @@ model KnowledgeDocument {
 }
 
 /// Eine aufbereitete Erkenntnis aus einer Wissensquelle: eigene Formulierung,
-/// getaggt mit Interessen (Fragebogen-Matching) und ggf. Ortsnamen.
+/// getaggt mit Interessen (Fragebogen-Matching) und an konkrete Orte gebunden.
 model KnowledgeChunk {
   id         String            @id @default(cuid())
   documentId String            @map("document_id")
@@ -122,7 +127,14 @@ model KnowledgeChunk {
   title      String
   content    String
   interests  String[] // Keys aus dem Fragebogen (wandern, kulinarik, ...)
+  /// Aufgelöste Verweise auf `places.id` (exakte Ortszuordnung).
+  placeIds   String[]          @map("place_ids")
+  /// NICHT auflösbare Ortsnamen – Kandidaten für neue Orts-Einträge
+  /// (Altbestand vor der Umstellung enthält hier alle genannten Namen).
   placeNames String[]          @map("place_names")
+  /// Semantisches Embedding (Voyage AI, 1024 Dim.) über den kontextualisierten
+  /// Notiz-Text; wird per Raw-SQL geschrieben/abgefragt (Prisma: Unsupported).
+  embedding  Unsupported("vector(1024)")?
   createdAt  DateTime          @default(now()) @map("created_at")
 
   @@map("knowledge_chunks")

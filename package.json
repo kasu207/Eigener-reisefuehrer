@@ -14,6 +14,7 @@
     "db:seed:torno": "tsx prisma/seed-torno.ts",
     "db:seed:knowledge": "tsx prisma/seed-knowledge-comer.ts",
     "db:seed:daytrips": "tsx prisma/seed-daytrips-comer.ts",
+    "db:backfill-embeddings": "tsx prisma/backfill-embeddings.ts",
     "db:demote-unsafe-auto-research": "tsx prisma/demote-unsafe-auto-research.ts",
     "postinstall": "prisma generate"
   },

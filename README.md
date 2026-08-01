@@ -9,7 +9,8 @@ DB-Einträge, kein Code.
 ## Stack
 
 - **Next.js** (App Router, TypeScript) – Fragebogen, Guide-Ansicht und Admin in einer App
-- **Postgres + Prisma** – Datenmodell gemäß Anforderungsdokument (Kap. 6)
+- **Postgres + Prisma** – Datenmodell gemäß Anforderungsdokument (Kap. 6);
+  **pgvector** für die semantische Suche in der Wissensdatenbank
 - **Claude API** (`@anthropic-ai/sdk`) – kapitelweise Textgenerierung mit Zod-validiertem JSON-Output
 - **DB-basierte Job-Queue** – Worker-Prozess generiert Guides im Hintergrund
 - **Leaflet + OpenStreetMap** – Übersichtskarte und Koordinaten-Picker im Admin
@@ -112,6 +113,29 @@ zwei Stufen, bevor sie in Guides landet:
 Die KI legt aus freigegebenen Quellen paraphrasierte, nach Interessen
 getaggte Notizen an (nie wörtliche Übernahmen, Quellenangabe am Dokument).
 Passende Notizen fließen als Kontext in die Guide-Generierung ein.
+
+### Semantische Suche (pgvector + Voyage-Embeddings)
+
+Notizen werden beim Einlesen **kontextualisiert embedded** (Region, Quelle
+und Orte werden dem Text vorangestellt – „Contextual Retrieval") und in
+Postgres/pgvector gespeichert. Daraus folgt:
+
+- **Matching auf den Fragebogen** läuft semantisch (Cosine-Suche) statt nur
+  über Interessen-Tags; ohne `VOYAGE_API_KEY` greift automatisch das
+  Tag-Matching als Fallback.
+- **Duplikate** (z. B. zehn Blogs über dieselbe Villa) werden beim Einlesen
+  per Ähnlichkeitsschwelle erkannt und übersprungen.
+- **Ortszuordnung** ist exakt: Die Analyse bekommt die bekannten Orte der
+  Region mit IDs und liefert `placeIds`; nicht auflösbare Ortsnamen werden
+  im Admin als **Orts-Kandidaten** für neue Einträge ausgewiesen.
+
+Setup: `VOYAGE_API_KEY` in der `.env` setzen (Voyage AI – von Anthropic
+empfohlen, großes Gratis-Kontingent), dann Bestandsnotizen einmalig
+nachrüsten: `npm run db:backfill-embeddings`. Die lokale DB braucht das
+Image `pgvector/pgvector:pg16` (siehe docker-compose; Datenvolume bleibt
+kompatibel, `npm run db:push` legt die Extension an). Im Mock-Modus
+(`AI_MODE=mock`) simulieren deterministische Pseudo-Embeddings den
+kompletten Ablauf ohne API-Kosten.
 
 ## DSGVO
 

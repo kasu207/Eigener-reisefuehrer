@@ -76,12 +76,15 @@ async function processOneDocument(): Promise<boolean> {
 
   console.log(`[worker] Analysiere Wissensquelle ${id} ...`);
   try {
-    const count = await processKnowledgeDocument(id);
+    const { created, skippedDuplicates } = await processKnowledgeDocument(id);
     await prisma.knowledgeDocument.update({
       where: { id },
       data: { status: "analyzed", error: null },
     });
-    console.log(`[worker] Wissensquelle ${id}: ${count} Notizen angelegt`);
+    console.log(
+      `[worker] Wissensquelle ${id}: ${created} Notizen angelegt` +
+        (skippedDuplicates > 0 ? `, ${skippedDuplicates} Duplikate übersprungen` : "")
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[worker] Fehler bei Wissensquelle ${id}:`, message);

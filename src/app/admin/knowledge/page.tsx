@@ -219,7 +219,10 @@ export default async function KnowledgePage({
                         <p className="mt-1 text-neutral-700">{chunk.content}</p>
                         <p className="mt-1 text-xs text-neutral-500">
                           Interessen: {chunk.interests.join(", ") || "–"}
-                          {chunk.placeNames.length > 0 && ` · Orte: ${chunk.placeNames.join(", ")}`}
+                          {chunk.placeIds.length > 0 &&
+                            ` · ${chunk.placeIds.length} Ort(e) zugeordnet`}
+                          {chunk.placeNames.length > 0 &&
+                            ` · Orts-Kandidaten (noch kein Eintrag): ${chunk.placeNames.join(", ")}`}
                         </p>
                         <form action={deleteKnowledgeChunk}>
                           <input type="hidden" name="id" value={chunk.id} />
