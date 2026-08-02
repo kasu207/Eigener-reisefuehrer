@@ -114,28 +114,28 @@ Die KI legt aus freigegebenen Quellen paraphrasierte, nach Interessen
 getaggte Notizen an (nie wörtliche Übernahmen, Quellenangabe am Dokument).
 Passende Notizen fließen als Kontext in die Guide-Generierung ein.
 
-### Semantische Suche (pgvector + Voyage-Embeddings)
+### Hybrid-Suche & Dedup (reine Postgres-Bordmittel, kein externer Dienst)
 
-Notizen werden beim Einlesen **kontextualisiert embedded** (Region, Quelle
-und Orte werden dem Text vorangestellt – „Contextual Retrieval") und in
-Postgres/pgvector gespeichert. Daraus folgt:
+Retrieval und Duplikat-Erkennung laufen komplett mit den Postgres-Extensions
+`pg_trgm` und `unaccent` – beide Teil von "postgresql-contrib" und in jedem
+Standard-Postgres-Image enthalten. Kein API-Key, kein zusätzlicher Dienst,
+keine Downloads zur Laufzeit:
 
-- **Matching auf den Fragebogen** läuft semantisch (Cosine-Suche) statt nur
-  über Interessen-Tags; ohne `VOYAGE_API_KEY` greift automatisch das
-  Tag-Matching als Fallback.
+- **Matching auf den Fragebogen** ist ein Hybrid aus dem bisherigen
+  Tag-Matching (strukturiertes, redaktionelles Signal) und Postgres-
+  Volltextsuche (`websearch_to_tsquery`/`ts_rank_cd`, findet auch Begriffe,
+  die nicht als Tag hinterlegt sind – z. B. Ortsnamen aus dem Fragebogen).
+  Beide Rankings werden per Reciprocal Rank Fusion (RRF) zusammengeführt.
 - **Duplikate** (z. B. zehn Blogs über dieselbe Villa) werden beim Einlesen
-  per Ähnlichkeitsschwelle erkannt und übersprungen.
+  per Trigram-Ähnlichkeit (`similarity()`) erkannt und übersprungen.
 - **Ortszuordnung** ist exakt: Die Analyse bekommt die bekannten Orte der
   Region mit IDs und liefert `placeIds`; nicht auflösbare Ortsnamen werden
   im Admin als **Orts-Kandidaten** für neue Einträge ausgewiesen.
 
-Setup: `VOYAGE_API_KEY` in der `.env` setzen (Voyage AI – von Anthropic
-empfohlen, großes Gratis-Kontingent), dann Bestandsnotizen einmalig
-nachrüsten: `npm run db:backfill-embeddings`. Die lokale DB braucht das
-Image `pgvector/pgvector:pg16` (siehe docker-compose; Datenvolume bleibt
-kompatibel, `npm run db:push` legt die Extension an). Im Mock-Modus
-(`AI_MODE=mock`) simulieren deterministische Pseudo-Embeddings den
-kompletten Ablauf ohne API-Kosten.
+Setup: keines – `npm run db:push` legt die Extensions automatisch an. Für
+Bestandsnotizen aus der Zeit vor der Umstellung einmalig
+`npm run db:backfill-place-ids` ausführen (löst `placeNames` zu `placeIds`
+auf).
 
 ## DSGVO
 

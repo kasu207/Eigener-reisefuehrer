@@ -1,16 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  pseudoEmbedding,
-  cosineSimilarity,
-  toVectorLiteral,
-  EMBEDDING_DIM,
-} from "../src/lib/ai/embeddings";
-import {
   normalizePlaceKey,
   resolvePlaceNames,
-  contextualChunkText,
   chunksForPlace,
-  questionnaireToSearchText,
+  questionnaireSearchTerms,
   type ChunkWithSource,
 } from "../src/lib/knowledge";
 import { questionnaireSchema } from "../src/lib/questionnaire";
@@ -29,28 +22,6 @@ function makeChunk(overrides: Partial<ChunkWithSource> = {}): ChunkWithSource {
     ...overrides,
   } as ChunkWithSource;
 }
-
-describe("Pseudo-Embeddings (Mock/Test-Modus)", () => {
-  it("sind deterministisch, normalisiert und haben die richtige Dimension", () => {
-    const a = pseudoEmbedding("Villa del Balbianello am Comer See");
-    const b = pseudoEmbedding("Villa del Balbianello am Comer See");
-    expect(a).toEqual(b);
-    expect(a).toHaveLength(EMBEDDING_DIM);
-    const norm = Math.sqrt(a.reduce((s, x) => s + x * x, 0));
-    expect(norm).toBeCloseTo(1, 5);
-  });
-
-  it("ähnliche Texte liegen näher beieinander als unähnliche", () => {
-    const villa1 = pseudoEmbedding("Die Villa del Balbianello ist ein Filmdrehort mit Garten");
-    const villa2 = pseudoEmbedding("Filmdrehort Villa del Balbianello: der Garten ist berühmt");
-    const hike = pseudoEmbedding("Steiler Wanderweg zum Monte Grona mit vielen Höhenmetern");
-    expect(cosineSimilarity(villa1, villa2)).toBeGreaterThan(cosineSimilarity(villa1, hike));
-  });
-
-  it("erzeugt gültige pgvector-Literale", () => {
-    expect(toVectorLiteral([0.5, -1, 2])).toBe("[0.5,-1,2]");
-  });
-});
 
 describe("Ortsnamen-Auflösung", () => {
   const known = [
@@ -77,22 +48,7 @@ describe("Ortsnamen-Auflösung", () => {
   });
 });
 
-describe("Kontextualisierung & Ort-Matching", () => {
-  it("stellt Region, Quelle und Orte dem Embedding-Text voran", () => {
-    const text = contextualChunkText({
-      regionName: "Comer See",
-      sourceTitle: "Testbuch",
-      sourceKind: "book",
-      title: "Aperitivo-Tipp",
-      content: "Abends ist die Piazza am schönsten.",
-      placeLabels: ["Varenna"],
-    });
-    expect(text).toContain("Comer See");
-    expect(text).toContain("Testbuch");
-    expect(text).toContain("Varenna");
-    expect(text).toContain("Aperitivo-Tipp: Abends ist die Piazza am schönsten.");
-  });
-
+describe("Ort-Matching für den Guide-Prompt", () => {
   it("chunksForPlace matcht exakt über placeIds und legacy über Namen", () => {
     const exact = makeChunk({ placeIds: ["p1"] });
     const legacy = makeChunk({ placeNames: ["Varenna"] });
@@ -102,8 +58,8 @@ describe("Kontextualisierung & Ort-Matching", () => {
   });
 });
 
-describe("Fragebogen → Suchtext", () => {
-  it("verdichtet Interessen, Kinder und Vorlieben zu einem Suchtext", () => {
+describe("Fragebogen → Suchbegriffe (Postgres-Volltextsuche)", () => {
+  it("verdichtet Interessen, Kinder, Ernährung und Orte zu Suchbegriffen", () => {
     const q = questionnaireSchema.parse({
       regionSlug: "comer-see",
       dateFrom: "2026-08-01",
@@ -126,11 +82,37 @@ describe("Fragebogen → Suchtext", () => {
       firstNames: "Test",
       gdprConsent: true,
     });
-    const text = questionnaireToSearchText(q, "Comer See");
-    expect(text).toContain("Wandern");
-    expect(text).toContain("Kulinarik");
-    expect(text).toContain("Varenna");
-    expect(text).toContain("Kind");
-    expect(text).toContain("vegetarian");
+    const terms = questionnaireSearchTerms(q);
+    expect(terms).toContain("Wandern");
+    expect(terms).toContain("Kulinarik");
+    expect(terms).toContain("Varenna");
+    expect(terms).toContain("Familie");
+    expect(terms).toContain("vegetarisch");
+    expect(terms).toContain("Aperitivo Bar");
+  });
+
+  it("dedupliziert Begriffe", () => {
+    const q = questionnaireSchema.parse({
+      regionSlug: "comer-see",
+      dateFrom: "2026-08-01",
+      dateTo: "2026-08-07",
+      accommodation: { label: "Varenna", lat: null, lng: null },
+      mobility: ["car"],
+      adults: 2,
+      children: [],
+      interests: [{ key: "wandern", weight: "wichtig" }],
+      fitnessLevel: "mittel",
+      maxHikeDurationMin: 240,
+      maxElevationGainM: 800,
+      pace: "ausgewogen",
+      priceLevel: 3,
+      diets: [],
+      foodPreferences: [],
+      anchors: [{ label: "Varenna", lat: null, lng: null }],
+      firstNames: "Test",
+      gdprConsent: true,
+    });
+    const terms = questionnaireSearchTerms(q);
+    expect(terms.filter((t) => t === "Varenna")).toHaveLength(1);
   });
 });

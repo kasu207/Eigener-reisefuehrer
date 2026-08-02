@@ -8,6 +8,15 @@ Es analysiert den Ist-Zustand, stellt die technischen Optionen vor und bewertet 
 für *diesen* Stack (Next.js + Postgres/Prisma + Claude API, eine Region, ein Redakteur,
 kleines Budget).
 
+> **Update (Umsetzung Stufe 1):** Entgegen der ursprünglichen Kernempfehlung
+> A3/A4 (pgvector + Voyage-Embeddings) wurde bewusst **ohne** externen
+> Embedding-Dienst umgesetzt – Vorgabe: „alles self-built", keine
+> zusätzlichen Services. Stufe 1 nutzt stattdessen ausschließlich
+> Postgres-Bordmittel: Volltextsuche (`pg_trgm`/`unaccent`, Teil von
+> „postgresql-contrib", in jedem Standard-Postgres-Image enthalten) statt
+> Vektor-Ähnlichkeit, siehe Option A2/A4 unten. A3 (Embeddings) bleibt als
+> Referenz dokumentiert, ist aber **nicht** der eingeschlagene Weg.
+
 ---
 
 ## 1. Ist-Zustand (was heute passiert)

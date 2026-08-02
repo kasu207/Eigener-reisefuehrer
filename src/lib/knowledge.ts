@@ -7,13 +7,6 @@ import {
   type AnalyzedChunk,
   type KnownPlace,
 } from "./ai/analyze-document";
-import {
-  embedText,
-  embedTexts,
-  embeddingsEnabled,
-  toVectorLiteral,
-  cosineSimilarity,
-} from "./ai/embeddings";
 import { INTEREST_LABELS, type Questionnaire } from "./questionnaire";
 import type { KnowledgeChunk } from "@prisma/client";
 
@@ -23,20 +16,24 @@ export { UnsafeSourceError };
  * Verarbeitung von Wissensquellen (Bücher, Reiseführer, Blogs) und Matching
  * der aufbereiteten Notizen auf Fragebogen und Orte.
  *
- * Retrieval-Strategie:
- * 1. Semantisch (pgvector + Voyage-Embeddings), wenn konfiguriert –
- *    Fragebogen wird zu einem Suchtext, Notizen sind kontextualisiert
- *    embedded ("Contextual Retrieval").
- * 2. Fallback: Tag-basiertes Interessen-Matching (funktioniert immer,
- *    auch ganz ohne Embedding-Schlüssel).
+ * Bewusst OHNE Embeddings/externe Dienste – alles läuft mit Postgres-
+ * Bordmitteln (Extensions "pg_trgm" und "unaccent", Teil jedes Standard-
+ * Postgres-Images, kein API-Key, keine Netzwerkabhängigkeit):
  *
- * Ortszuordnung: Notizen tragen aufgelöste `placeIds` (exakt); freie
- * `placeNames` bleiben nur für nicht auflösbare Orte stehen und dienen der
- * Redaktion als Kandidaten für neue Einträge.
+ * - **Retrieval**: Hybrid aus Tag-Matching (strukturiertes, redaktionelles
+ *   Signal aus den Interessen-Tags) und Postgres-Volltextsuche
+ *   (`websearch_to_tsquery`/`ts_rank_cd`, freies Textsignal – findet auch
+ *   Begriffe, die nicht als Tag hinterlegt sind). Fusion per Reciprocal
+ *   Rank Fusion (RRF), Standard-Rezept für Hybrid Search.
+ * - **Dedup**: Trigram-Ähnlichkeit (`similarity()` aus pg_trgm) zwischen
+ *   neuen und bestehenden Notizen der Region.
+ * - **Ortszuordnung**: exakt über `placeIds` (von der KI-Analyse geliefert,
+ *   gegen die echte Orte-Liste validiert); nicht auflösbare Namen bleiben
+ *   als Orts-Kandidaten für die Redaktion stehen.
  */
 
-/** Ab dieser Cosine-Ähnlichkeit gilt eine neue Notiz als Duplikat. */
-const DUPLICATE_SIMILARITY = 0.92;
+/** Ab dieser Trigram-Ähnlichkeit (0–1) gilt eine neue Notiz als Duplikat. */
+const DUPLICATE_SIMILARITY = 0.42;
 
 // ---------------------------------------------------------------------------
 // Ortsnamen-Auflösung
@@ -74,25 +71,8 @@ export function resolvePlaceNames(
 }
 
 // ---------------------------------------------------------------------------
-// Ingestion: Quelle analysieren, kontextualisieren, embedden, deduplizieren
+// Ingestion: Quelle analysieren, Orte auflösen, deduplizieren
 // ---------------------------------------------------------------------------
-
-/**
- * Kontextualisierter Text, der embedded wird ("Contextual Retrieval" nach
- * Anthropic): Region, Quelle und Orte werden dem Notiz-Text vorangestellt,
- * damit das Embedding den Zusammenhang kennt.
- */
-export function contextualChunkText(args: {
-  regionName: string;
-  sourceTitle: string;
-  sourceKind: string;
-  title: string;
-  content: string;
-  placeLabels: string[];
-}): string {
-  const places = args.placeLabels.length ? ` · Orte: ${args.placeLabels.join(", ")}` : "";
-  return `Region ${args.regionName} · Quelle: ${args.sourceTitle} (${args.sourceKind})${places}\n${args.title}: ${args.content}`;
-}
 
 interface PreparedChunk {
   title: string;
@@ -100,60 +80,37 @@ interface PreparedChunk {
   interests: string[];
   placeIds: string[];
   placeNames: string[];
-  contextText: string;
 }
 
 /** Analyse-Ergebnis in speicherbare Notizen überführen (Orte auflösen). */
-function prepareChunks(
-  analyzed: AnalyzedChunk[],
-  knownPlaces: KnownPlace[],
-  regionName: string,
-  sourceTitle: string,
-  sourceKind: string
-): PreparedChunk[] {
-  const nameById = new Map(knownPlaces.map((p) => [p.id, p.name]));
+function prepareChunks(analyzed: AnalyzedChunk[], knownPlaces: KnownPlace[]): PreparedChunk[] {
   return analyzed.map((chunk) => {
     // KI-gelieferte ids + code-seitige Namensauflösung als zweites Netz
     const resolved = resolvePlaceNames(chunk.placeNames, knownPlaces);
-    const placeIds = [...new Set([...chunk.placeIds, ...resolved.placeIds])];
-    const placeNames = resolved.unresolved;
-    const placeLabels = [
-      ...placeIds.map((id) => nameById.get(id)).filter((n): n is string => Boolean(n)),
-      ...placeNames,
-    ];
     return {
       title: chunk.title,
       content: chunk.content,
       interests: chunk.interests,
-      placeIds,
-      placeNames,
-      contextText: contextualChunkText({
-        regionName,
-        sourceTitle,
-        sourceKind,
-        title: chunk.title,
-        content: chunk.content,
-        placeLabels,
-      }),
+      placeIds: [...new Set([...chunk.placeIds, ...resolved.placeIds])],
+      placeNames: resolved.unresolved,
     };
   });
 }
 
-/** Nächste bestehende Notiz der Region zu einem Vektor (für Dedup). */
-async function nearestExistingSimilarity(
-  regionId: string,
-  excludeDocumentId: string,
-  vector: number[]
-): Promise<number> {
-  const literal = toVectorLiteral(vector);
+/**
+ * Höchste Trigram-Ähnlichkeit einer bestehenden Notiz der Region zu einem
+ * Text (Titel + Inhalt kombiniert). Läuft gegen alle Notizen der Region
+ * außer dem aktuellen Dokument (dessen alte Chunks wurden vor dem Lauf
+ * bereits gelöscht) – erfasst damit sowohl Dubletten aus anderen Quellen
+ * als auch bereits in diesem Lauf eingefügte Notizen.
+ */
+async function maxExistingSimilarity(regionId: string, combinedText: string): Promise<number> {
   const rows = await prisma.$queryRaw<{ similarity: number }[]>`
-    SELECT 1 - (kc.embedding <=> ${literal}::vector) AS similarity
+    SELECT similarity(unaccent(kc.title || ' ' || kc.content), unaccent(${combinedText})) AS similarity
     FROM knowledge_chunks kc
     JOIN knowledge_documents kd ON kd.id = kc.document_id
     WHERE kd.region_id = ${regionId}
-      AND kd.id <> ${excludeDocumentId}
-      AND kc.embedding IS NOT NULL
-    ORDER BY kc.embedding <=> ${literal}::vector
+    ORDER BY similarity DESC
     LIMIT 1
   `;
   return rows[0]?.similarity ?? 0;
@@ -208,21 +165,7 @@ export async function processKnowledgeDocument(documentId: string): Promise<Proc
     throw err;
   }
 
-  const prepared = prepareChunks(
-    result.chunks,
-    knownPlaces,
-    doc.region.name,
-    doc.title,
-    doc.kind
-  );
-
-  // Embeddings über die kontextualisierten Texte (null = nicht konfiguriert)
-  let vectors: (number[] | null)[] = prepared.map(() => null);
-  const embedded = await embedTexts(
-    prepared.map((c) => c.contextText),
-    "document"
-  );
-  if (embedded) vectors = embedded;
+  const prepared = prepareChunks(result.chunks, knownPlaces);
 
   // Alte Chunks ersetzen (Re-Analyse möglich) – vor dem Dedup, damit die
   // eigenen alten Notizen nicht als "Duplikat" zählen.
@@ -230,28 +173,15 @@ export async function processKnowledgeDocument(documentId: string): Promise<Proc
 
   let created = 0;
   let skippedDuplicates = 0;
-  const insertedVectors: number[][] = [];
 
-  for (let i = 0; i < prepared.length; i++) {
-    const chunk = prepared[i];
-    const vector = vectors[i];
-
-    if (vector) {
-      // Dedup gegen bereits eingefügte Notizen dieses Laufs …
-      const batchDup = insertedVectors.some(
-        (v) => cosineSimilarity(v, vector) >= DUPLICATE_SIMILARITY
-      );
-      // … und gegen den Bestand anderer Quellen der Region
-      const existingSim = batchDup
-        ? 0
-        : await nearestExistingSimilarity(doc.regionId, doc.id, vector);
-      if (batchDup || existingSim >= DUPLICATE_SIMILARITY) {
-        skippedDuplicates++;
-        continue;
-      }
+  for (const chunk of prepared) {
+    const combinedText = `${chunk.title} ${chunk.content}`;
+    const similarity = await maxExistingSimilarity(doc.regionId, combinedText);
+    if (similarity >= DUPLICATE_SIMILARITY) {
+      skippedDuplicates++;
+      continue;
     }
-
-    const row = await prisma.knowledgeChunk.create({
+    await prisma.knowledgeChunk.create({
       data: {
         documentId: doc.id,
         title: chunk.title,
@@ -261,14 +191,6 @@ export async function processKnowledgeDocument(documentId: string): Promise<Proc
         placeNames: chunk.placeNames,
       },
     });
-    if (vector) {
-      await prisma.$executeRaw`
-        UPDATE knowledge_chunks
-        SET embedding = ${toVectorLiteral(vector)}::vector
-        WHERE id = ${row.id}
-      `;
-      insertedVectors.push(vector);
-    }
     created++;
   }
 
@@ -283,94 +205,109 @@ export type ChunkWithSource = KnowledgeChunk & {
   document: { title: string; kind: string; url: string | null };
 };
 
-/** Fragebogen zu einem semantischen Suchtext verdichten. */
-export function questionnaireToSearchText(q: Questionnaire, regionName: string): string {
-  const important = q.interests
-    .filter((i) => i.weight === "wichtig")
-    .map((i) => INTEREST_LABELS[i.key]);
-  const nice = q.interests
-    .filter((i) => i.weight === "interessant")
-    .map((i) => INTEREST_LABELS[i.key]);
-  const parts = [
-    `Reise: ${regionName}, Unterkunft in ${q.accommodation.label}`,
-    important.length ? `Besonders wichtig: ${important.join(", ")}` : "",
-    nice.length ? `Außerdem interessant: ${nice.join(", ")}` : "",
-    q.children.length
-      ? `Mit ${q.children.length} Kind(ern) (${q.children.map((c) => c.ageGroup).join(", ")} Jahre)`
-      : "Ohne Kinder",
-    `Tempo: ${q.pace}, Fitness: ${q.fitnessLevel}`,
-    q.diets.length ? `Ernährung: ${q.diets.join(", ")}` : "",
-    q.foodPreferences.length ? `Essens-Vorlieben: ${q.foodPreferences.join(", ")}` : "",
-    q.occasion ? `Anlass: ${q.occasion}` : "",
-    (q.anchors ?? []).length
-      ? `Wunsch-Orte: ${(q.anchors ?? []).map((a) => a.label).join(", ")}`
-      : "",
+const DIET_LABELS: Record<string, string> = {
+  vegetarian: "vegetarisch",
+  vegan: "vegan",
+  glutenfree: "glutenfrei",
+};
+
+const FOOD_PREFERENCE_LABELS: Record<string, string> = {
+  regional_traditionell: "regional traditionell",
+  gehoben: "gehoben",
+  unkompliziert: "unkompliziert",
+  aperitivo_bar: "Aperitivo Bar",
+};
+
+/** Freitext-Suchbegriffe aus dem Fragebogen (für die Postgres-Volltextsuche). */
+export function questionnaireSearchTerms(q: Questionnaire): string[] {
+  const terms: string[] = [
+    ...q.interests.map((i) => INTEREST_LABELS[i.key]),
+    ...q.diets.map((d) => DIET_LABELS[d] ?? d),
+    ...q.foodPreferences.map((f) => FOOD_PREFERENCE_LABELS[f] ?? f),
   ];
-  return parts.filter(Boolean).join(". ");
+  if (q.children.length > 0) terms.push("Familie", "Kinder");
+  if (q.occasion) terms.push(q.occasion);
+  if (q.accommodation.label) terms.push(q.accommodation.label);
+  for (const a of q.anchors ?? []) if (a.label) terms.push(a.label);
+  return [...new Set(terms.map((t) => t.trim()).filter(Boolean))];
 }
 
-/** Semantische Top-K-Notizen der Region (null = Embeddings nicht verfügbar). */
-async function semanticChunkIds(
+/** Escaped Suchbegriffe zu einer `websearch_to_tsquery`-tauglichen OR-Kette. */
+function toSearchQueryText(terms: string[]): string {
+  // websearch_to_tsquery interpretiert "OR" als logisches Oder und ignoriert
+  // übrige Satzzeichen selbst robust – kein manuelles Escaping der Lexeme
+  // nötig, nur potenzielle Anführungszeichen (Phrasensuche) neutralisieren.
+  return terms.map((t) => t.replace(/"/g, " ")).join(" OR ");
+}
+
+/** RRF-Fusion zweier Rankings (Standard-Konstante k=60). */
+function reciprocalRankFusion(rankings: string[][], k = 60): string[] {
+  const scores = new Map<string, number>();
+  for (const ranking of rankings) {
+    ranking.forEach((id, index) => {
+      scores.set(id, (scores.get(id) ?? 0) + 1 / (k + index + 1));
+    });
+  }
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([id]) => id);
+}
+
+/** Volltextsuche-Ranking (Postgres `ts_rank_cd`) über die Notizen der Region. */
+async function fullTextChunkIds(
   regionId: string,
-  q: Questionnaire,
-  regionName: string,
+  searchText: string,
   limit: number
-): Promise<string[] | null> {
-  if (!embeddingsEnabled()) return null;
-  const vector = await embedText(questionnaireToSearchText(q, regionName), "query");
-  if (!vector) return null;
-  const literal = toVectorLiteral(vector);
+): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     SELECT kc.id
     FROM knowledge_chunks kc
     JOIN knowledge_documents kd ON kd.id = kc.document_id
     WHERE kd.region_id = ${regionId}
       AND kd.status = 'analyzed'
-      AND kc.embedding IS NOT NULL
-    ORDER BY kc.embedding <=> ${literal}::vector
+      AND to_tsvector('german', unaccent(kc.title || ' ' || kc.content))
+          @@ websearch_to_tsquery('german', unaccent(${searchText}))
+    ORDER BY ts_rank_cd(
+      to_tsvector('german', unaccent(kc.title || ' ' || kc.content)),
+      websearch_to_tsquery('german', unaccent(${searchText}))
+    ) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
 }
 
 /**
- * Notizen passend zum Fragebogen auswählen: semantisch (pgvector), wenn
- * verfügbar; Notizen ohne Embedding (Altbestand) und der Komplett-Fallback
- * laufen über das Tag-Matching.
+ * Notizen passend zum Fragebogen auswählen: Hybrid aus Tag-Matching
+ * (strukturiert) und Postgres-Volltextsuche (frei), per RRF fusioniert.
+ * Fällt bei DB-Problemen auf reines Tag-Matching zurück.
  */
 export async function selectChunksForQuestionnaire(
   regionId: string,
-  regionName: string,
   chunks: ChunkWithSource[],
   q: Questionnaire,
   limit = 12
 ): Promise<ChunkWithSource[]> {
+  const tagRanked = matchChunksToQuestionnaire(chunks, q, chunks.length).map((c) => c.id);
+
+  let ftsRanked: string[] = [];
   try {
-    const ids = await semanticChunkIds(regionId, q, regionName, limit);
-    if (ids && ids.length > 0) {
-      const byId = new Map(chunks.map((c) => [c.id, c]));
-      const picked = ids
-        .map((id) => byId.get(id))
-        .filter((c): c is ChunkWithSource => Boolean(c));
-      if (picked.length >= limit) return picked.slice(0, limit);
-      // Rest über Tag-Matching auffüllen (z. B. Notizen ohne Embedding)
-      const pickedIds = new Set(picked.map((c) => c.id));
-      const rest = matchChunksToQuestionnaire(
-        chunks.filter((c) => !pickedIds.has(c.id)),
-        q,
-        limit - picked.length
-      );
-      return [...picked, ...rest];
-    }
+    const searchText = toSearchQueryText(questionnaireSearchTerms(q));
+    if (searchText) ftsRanked = await fullTextChunkIds(regionId, searchText, chunks.length);
   } catch (err) {
-    console.warn("Semantische Notiz-Suche fehlgeschlagen, Tag-Fallback:", err);
+    console.warn("Volltextsuche für Wissensdatenbank fehlgeschlagen, nur Tag-Matching:", err);
   }
-  return matchChunksToQuestionnaire(chunks, q, limit);
+
+  const fusedIds = reciprocalRankFusion([tagRanked, ftsRanked]);
+  const byId = new Map(chunks.map((c) => [c.id, c]));
+  return fusedIds
+    .map((id) => byId.get(id))
+    .filter((c): c is ChunkWithSource => Boolean(c))
+    .slice(0, limit);
 }
 
 /**
- * Tag-basiertes Matching (Fallback ohne Embeddings): Interessen-Schnittmenge,
- * gewichtete Interessen zählen doppelt. Deterministisch sortiert.
+ * Tag-basiertes Matching: Interessen-Schnittmenge, gewichtete Interessen
+ * zählen doppelt. Deterministisch sortiert.
  */
 export function matchChunksToQuestionnaire(
   chunks: ChunkWithSource[],
@@ -398,9 +335,7 @@ export function chunksForPlace(
   placeId: string,
   name: string
 ): ChunkWithSource[] {
-  return chunks.filter(
-    (c) => c.placeIds.includes(placeId) || matchesPlaceName(c, name)
-  );
+  return chunks.filter((c) => c.placeIds.includes(placeId) || matchesPlaceName(c, name));
 }
 
 /** Notizen, die sich per Ortsname einem Eintrag zuordnen lassen (Fallback). */

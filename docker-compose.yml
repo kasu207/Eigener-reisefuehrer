@@ -1,8 +1,6 @@
 services:
   db:
-    # Postgres 16 mit pgvector-Extension (semantische Suche Wissensdatenbank).
-    # Bestehendes Datenvolume bleibt kompatibel – einfach neu starten.
-    image: pgvector/pgvector:pg16
+    image: postgres:16
     environment:
       POSTGRES_USER: reisefuehrer
       POSTGRES_PASSWORD: reisefuehrer

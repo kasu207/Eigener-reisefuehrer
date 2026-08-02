@@ -136,8 +136,8 @@ async function prepareGuideData(
     where: { document: { regionId: region.id, status: "analyzed" } },
     include: { document: { select: { title: true, kind: true, url: true } } },
   });
-  // Semantische Auswahl (pgvector), fällt ohne Embeddings auf Tags zurück
-  const matchedChunks = await selectChunksForQuestionnaire(region.id, region.name, allChunks, q);
+  // Hybrid-Auswahl: Tag-Matching + Postgres-Volltextsuche, per RRF fusioniert
+  const matchedChunks = await selectChunksForQuestionnaire(region.id, allChunks, q);
 
   // Nur verifizierte Einträge gelangen in Guides (Anforderung 4.5);
   // vom Nutzer entfernte Einträge werden nicht wieder aufgenommen
