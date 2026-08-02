@@ -105,15 +105,22 @@ function prepareChunks(analyzed: AnalyzedChunk[], knownPlaces: KnownPlace[]): Pr
  * als auch bereits in diesem Lauf eingefügte Notizen.
  */
 async function maxExistingSimilarity(regionId: string, combinedText: string): Promise<number> {
-  const rows = await prisma.$queryRaw<{ similarity: number }[]>`
-    SELECT similarity(unaccent(kc.title || ' ' || kc.content), unaccent(${combinedText})) AS similarity
-    FROM knowledge_chunks kc
-    JOIN knowledge_documents kd ON kd.id = kc.document_id
-    WHERE kd.region_id = ${regionId}
-    ORDER BY similarity DESC
-    LIMIT 1
-  `;
-  return rows[0]?.similarity ?? 0;
+  try {
+    const rows = await prisma.$queryRaw<{ similarity: number }[]>`
+      SELECT similarity(unaccent(kc.title || ' ' || kc.content), unaccent(${combinedText})) AS similarity
+      FROM knowledge_chunks kc
+      JOIN knowledge_documents kd ON kd.id = kc.document_id
+      WHERE kd.region_id = ${regionId}
+      ORDER BY similarity DESC
+      LIMIT 1
+    `;
+    return rows[0]?.similarity ?? 0;
+  } catch (err) {
+    // z. B. pg_trgm/unaccent (noch) nicht angelegt – Dedup ist ein
+    // Komfort-Feature, darf die Quellen-Analyse nicht zum Absturz bringen.
+    console.warn("Trigram-Dedup fehlgeschlagen, Notiz wird ohne Dedup-Check angelegt:", err);
+    return 0;
+  }
 }
 
 export interface ProcessResult {
