@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { questionnaireSchema } from "@/lib/questionnaire";
-import { rateLimit } from "@/lib/rate-limit";
+import { questionnaireInputSchema } from "@/lib/questionnaire";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { createGuideSkeleton } from "@/lib/guide-generation";
 import { geocodePlace } from "@/lib/geocode";
 
@@ -13,10 +13,16 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  if (!rateLimit(`guide-request:${ip}`)) {
+  const limit = checkRateLimit(`guide-request:${ip}`);
+  if (!limit.ok) {
+    // Konkrete Wartezeit nennen statt nur "später" – sonst probieren Nutzer
+    // im Minutentakt weiter und bekommen immer wieder dieselbe Absage.
+    const minutes = Math.max(1, Math.ceil(limit.retryAfterMs / 60_000));
     return NextResponse.json(
-      { error: "Zu viele Anfragen. Bitte versucht es später erneut." },
-      { status: 429 }
+      {
+        error: `Zu viele Anfragen. Bitte versucht es in ca. ${minutes} Minute${minutes === 1 ? "" : "n"} erneut.`,
+      },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)) } }
     );
   }
 
@@ -27,10 +33,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ungültige Anfrage." }, { status: 400 });
   }
 
-  const parsed = questionnaireSchema.safeParse(body);
+  const parsed = questionnaireInputSchema.safeParse(body);
   if (!parsed.success) {
+    // Die erste verständliche Meldung mitgeben – der Wizard zeigt nur
+    // `error` an, ein blankes "Validierung fehlgeschlagen." hilft niemandem.
+    const first = parsed.error.issues[0];
+    const detail = first?.message && !/^(Required|Invalid)/i.test(first.message) ? first.message : "";
     return NextResponse.json(
-      { error: "Validierung fehlgeschlagen.", issues: parsed.error.flatten() },
+      {
+        error: detail || "Validierung fehlgeschlagen. Bitte prüft eure Eingaben.",
+        issues: parsed.error.flatten(),
+      },
       { status: 400 }
     );
   }

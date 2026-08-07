@@ -79,8 +79,9 @@ npm test
 ```
 
 Deckt die Auswahl-Engine (harte Filter, Zielmengen, Determinismus,
-Anpassungs-Modifikatoren), das Wissensdatenbank-Matching und den
-Faktentreue-Check ab.
+Anpassungs-Modifikatoren), das Wissensdatenbank-Matching, den
+Faktentreue-Check, die Fragebogen-Validierung (Kalenderdaten,
+Reisezeitraum), das Rate-Limiting und die Admin-Basic-Auth ab.
 
 ## Entwickeln ohne API-Kosten (Mock-Modus)
 
@@ -120,6 +121,12 @@ Passende Notizen fließen als Kontext in die Guide-Generierung ein.
 - Einwilligung ist Pflichtfeld und wird mit dem Request gespeichert.
 - Statische Seiten `/impressum` und `/datenschutz` (Platzhalter vor Launch
   ausfüllen), Rate-Limiting am Fragebogen-Endpoint, Hosting in EU-Region wählen.
+- Der Fragebogen legt einen Entwurf im `localStorage` ab (7 Tage, wird beim
+  Absenden gelöscht), damit ein Reload nicht alle Antworten kostet. Keine
+  Tracking-Cookies.
+- Guide-Links sind der einzige Zugangsschutz. Deshalb halten `robots.txt`,
+  `noindex`-Metadaten der Guide-Seite und ein `X-Robots-Tag` auf PDF-/
+  Markdown-Export Suchmaschinen von `/guide/` fern.
 
 ## Out of Scope (Phase 2)
 

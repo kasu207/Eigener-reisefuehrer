@@ -148,6 +148,9 @@ export async function GET(
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="reisefuehrer.md"`,
+      // Guides sind privat – weder Suchmaschinen noch Zwischenspeicher.
+      "X-Robots-Tag": "noindex, nofollow",
+      "Cache-Control": "private, no-store",
     },
   });
 }

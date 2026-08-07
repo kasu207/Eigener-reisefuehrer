@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { INTERESTS, INTEREST_LABELS, type Interest } from "@/lib/questionnaire";
 
@@ -55,6 +55,56 @@ const initialState: FormState = {
   gdprConsent: false,
 };
 
+/**
+ * Zwischenspeicher für den Wizard.
+ *
+ * Der Fragebogen hat sechs Schritte; ohne Speicherung kostet ein
+ * versehentlicher Reload, ein Tab-Wechsel auf die Datenschutzerklärung oder
+ * ein Handy, das den Tab entlädt, sämtliche Antworten. Bewusst
+ * `localStorage` und kein Server: Die Daten sollen erst mit dem Absenden
+ * (samt Einwilligung) das Gerät verlassen. Der Entwurf verfällt nach 7 Tagen
+ * und wird nach erfolgreichem Absenden gelöscht.
+ */
+const DRAFT_KEY = "reisefuehrer:fragebogen:v1";
+const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function loadDraft(): { form: FormState; step: number } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: number; step?: number; form?: unknown };
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > DRAFT_MAX_AGE_MS) {
+      window.localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+    if (!parsed.form || typeof parsed.form !== "object") return null;
+    // Über den Default mischen, damit später ergänzte Felder nicht fehlen.
+    const form = { ...initialState, ...(parsed.form as Partial<FormState>) };
+    const step = Math.min(Math.max(0, parsed.step ?? 0), STEPS.length - 1);
+    return { form, step };
+  } catch {
+    // Defekter oder gesperrter Speicher: einfach frisch anfangen.
+    return null;
+  }
+}
+
+function saveDraft(form: FormState, step: number): void {
+  try {
+    window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: Date.now(), step, form }));
+  } catch {
+    // Privater Modus / voller Speicher – kein Grund, den Wizard zu stören.
+  }
+}
+
+function clearDraft(): void {
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* egal */
+  }
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
@@ -97,9 +147,38 @@ export default function FragebogenPage() {
   const [form, setForm] = useState<FormState>(initialState);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [restored, setRestored] = useState(false);
+  // Erst nach dem Wiederherstellen speichern, sonst überschreibt der leere
+  // Initialzustand beim ersten Render sofort den vorhandenen Entwurf.
+  const hydrated = useRef(false);
+
+  // Entwurf laden (nur im Browser, deshalb im Effekt statt im Initialwert –
+  // sonst weicht das Server-Rendering vom Client ab).
+  useEffect(() => {
+    const draft = loadDraft();
+    if (draft) {
+      setForm(draft.form);
+      setStep(draft.step);
+      setRestored(true);
+    }
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    saveDraft(form, step);
+  }, [form, step]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  function startOver() {
+    clearDraft();
+    setForm(initialState);
+    setStep(0);
+    setRestored(false);
+    setError(null);
+  }
 
   function validateStep(): string | null {
     switch (step) {
@@ -174,6 +253,9 @@ export default function FragebogenPage() {
       if (!res.ok) {
         throw new Error(data?.error ?? "Etwas ist schiefgelaufen.");
       }
+      // Abgeschickt: Entwurf hat seinen Zweck erfüllt und wird gelöscht,
+      // damit keine personenbezogenen Angaben im Browser zurückbleiben.
+      clearDraft();
       // Direkt in den Browser-Guide – dort füllt sich der Inhalt live
       router.push(data?.guideUrl ?? "/bestaetigung");
     } catch (e) {
@@ -204,6 +286,19 @@ export default function FragebogenPage() {
         Euer Reiseführer · Comer See
       </p>
       <h1 className="font-serif text-3xl">Fragebogen</h1>
+
+      {restored && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-(--color-accent-soft)/40 px-4 py-3 text-sm text-neutral-700">
+          <span>Wir haben eure zuletzt begonnenen Antworten wiederhergestellt.</span>
+          <button
+            type="button"
+            onClick={startOver}
+            className="underline underline-offset-2 hover:text-(--color-ink)"
+          >
+            Neu beginnen
+          </button>
+        </div>
+      )}
 
       {/* Fortschritt */}
       <ol className="mt-6 flex flex-wrap gap-2 text-xs">

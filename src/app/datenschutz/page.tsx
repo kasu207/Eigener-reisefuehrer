@@ -12,6 +12,16 @@ export default function DatenschutzPage() {
           (Art. 6 Abs. 1 lit. a DSGVO), die beim Absenden des Fragebogens
           protokolliert wird.
         </p>
+        <h2 className="font-serif text-xl">Speicherung im Browser</h2>
+        <p>
+          Damit eure Antworten bei einem versehentlichen Neuladen nicht
+          verloren gehen, speichert der Fragebogen den Zwischenstand lokal in
+          eurem Browser (localStorage). Diese Daten verlassen euer Gerät nicht,
+          werden nach spätestens 7 Tagen verworfen und beim Absenden des
+          Fragebogens gelöscht. Über „Neu beginnen" könnt ihr sie jederzeit
+          selbst entfernen. Es werden keine Tracking- oder Marketing-Cookies
+          gesetzt.
+        </p>
         <h2 className="font-serif text-xl">Speicherdauer und Löschung</h2>
         <p>
           Personenbezogene Daten (E-Mail-Adresse, Vornamen, Fragebogen) werden

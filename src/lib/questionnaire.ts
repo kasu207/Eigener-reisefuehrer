@@ -25,6 +25,24 @@ export const INTEREST_LABELS: Record<Interest, string> = {
   entspannung: "Entspannung",
 };
 
+/** Längste Reise, die die Auswahl-Engine sinnvoll abdeckt. */
+export const MAX_TRIP_DAYS = 30;
+
+/** Ist der String ein echter Kalendertag (nicht nur JJJJ-MM-TT-förmig)? */
+export function isRealCalendarDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  // `new Date` rollt den 31. Februar still auf den 3. März weiter – der
+  // Rückweg über toISOString deckt genau das auf.
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+/**
+ * Basis-Schema. Wird auch zum Lesen bereits gespeicherter Fragebögen benutzt
+ * und bleibt deshalb bewusst nachsichtig: Strengere Regeln kämen sonst
+ * rückwirkend auf Altdaten an und ließen bestehende Guides beim Öffnen
+ * fehlschlagen. Für neue Eingaben gilt `questionnaireInputSchema`.
+ */
 export const questionnaireSchema = z.object({
   // 1. Reise-Basisdaten
   regionSlug: z.string().min(1).default("comer-see"),
@@ -95,9 +113,57 @@ export const questionnaireSchema = z.object({
 
 export type Questionnaire = z.infer<typeof questionnaireSchema>;
 
+/**
+ * Schema für NEUE Eingaben aus dem Fragebogen (`POST /api/guide-requests`).
+ *
+ * Der Wizard prüft die Datumslogik bereits im Browser – die API ist aber
+ * öffentlich und darf sich darauf nicht verlassen (Anforderung 4.1:
+ * serverseitige Validierung). Ohne diese Prüfungen landen z. B.
+ * `2026-02-31` (existiert nicht, wird still zum 3. März) oder ein Enddatum
+ * vor dem Startdatum in der DB und erzeugen einen Guide mit falschem
+ * Zeitraum bzw. einer auf 1 Tag zusammengefallenen Reise.
+ */
+export const questionnaireInputSchema = questionnaireSchema.superRefine((q, ctx) => {
+  for (const field of ["dateFrom", "dateTo"] as const) {
+    if (!isRealCalendarDate(q[field])) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: "Kein gültiges Kalenderdatum.",
+      });
+      return;
+    }
+  }
+  if (q.dateTo < q.dateFrom) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dateTo"],
+      message: "Das Enddatum liegt vor dem Startdatum.",
+    });
+    return;
+  }
+  const spanDays =
+    Math.round(
+      (Date.parse(`${q.dateTo}T00:00:00Z`) - Date.parse(`${q.dateFrom}T00:00:00Z`)) / 86_400_000
+    ) + 1;
+  if (spanDays > MAX_TRIP_DAYS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dateTo"],
+      message: `Der Reisezeitraum darf höchstens ${MAX_TRIP_DAYS} Tage umfassen.`,
+    });
+  }
+});
+
+/**
+ * Reisedauer in Tagen (inklusive An- und Abreisetag).
+ * Bewusst in UTC gerechnet, damit Sommerzeit-Wechsel im Reisezeitraum die
+ * Tageszahl nicht um eins verschieben.
+ */
 export function tripDays(q: Questionnaire): number {
-  const from = new Date(q.dateFrom);
-  const to = new Date(q.dateTo);
-  const days = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
-  return Math.max(1, Math.min(days, 30));
+  const from = Date.parse(`${q.dateFrom}T00:00:00Z`);
+  const to = Date.parse(`${q.dateTo}T00:00:00Z`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return 1;
+  const days = Math.round((to - from) / 86_400_000) + 1;
+  return Math.max(1, Math.min(days, MAX_TRIP_DAYS));
 }

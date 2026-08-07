@@ -1,9 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { chromium } from "playwright-core";
+import { guideContentSchema } from "@/lib/guide-content";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
+
+/**
+ * Sprechender Dateiname statt immer „reisefuehrer.pdf" – wer mehrere Guides
+ * herunterlädt, hat sonst reisefuehrer(1).pdf, (2)… im Download-Ordner.
+ * Bewusst auf ASCII reduziert, damit der Header-Wert überall trägt.
+ */
+function pdfFileName(content: unknown): string {
+  const parsed = guideContentSchema.safeParse(content);
+  const slug = (parsed.success ? parsed.data.intro.title : "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return slug ? `${slug}.pdf` : "reisefuehrer.pdf";
+}
+
+/** Lesbare Fehlerseite statt eines nackten 500ers im Download-Dialog. */
+function pdfError(message: string): NextResponse {
+  return new NextResponse(message, {
+    status: 503,
+    headers: { "Content-Type": "text/plain; charset=utf-8", "Retry-After": "120" },
+  });
+}
 
 /**
  * A5-PDF-Export (Anforderung 4.4): rendert die Web-Ansicht mit Print-CSS
@@ -32,10 +58,29 @@ export async function GET(
   // z. B. "--no-sandbox --disable-dev-shm-usage" beim Betrieb als Root im Container
   const args = (process.env.CHROMIUM_ARGS ?? "").split(" ").filter(Boolean);
 
-  const browser = await chromium.launch({ executablePath, args });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath, args });
+  } catch (err) {
+    console.error("[pdf] Chromium konnte nicht gestartet werden:", err);
+    return pdfError(
+      "Der PDF-Export ist auf diesem Server nicht verfügbar (Chromium fehlt). Nutzt so lange die Web-Ansicht oder den Markdown-Export."
+    );
+  }
+
   try {
     const page = await browser.newPage();
-    await page.goto(`${appUrl}/guide/${token}`, { waitUntil: "networkidle" });
+    // `networkidle` allein kann hängen bleiben: Die Guide-Seite pollt während
+    // der Generierung ihren Status und lädt Kartenkacheln nach. Ein eigenes
+    // Zeitbudget sorgt dafür, dass wir notfalls mit dem drucken, was da ist,
+    // statt in einen unbehandelten 500er zu laufen.
+    await page.goto(`${appUrl}/guide/${token}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 45_000,
+    });
+    await page
+      .waitForLoadState("networkidle", { timeout: 20_000 })
+      .catch(() => console.warn("[pdf] networkidle nicht erreicht – drucke aktuellen Stand."));
     await page.emulateMedia({ media: "print" });
 
     const pdf = await page.pdf({
@@ -53,10 +98,18 @@ export async function GET(
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="reisefuehrer.pdf"`,
+        "Content-Disposition": `attachment; filename="${pdfFileName(guide.content)}"`,
+        // Guides sind privat – weder Suchmaschinen noch Zwischenspeicher.
+        "X-Robots-Tag": "noindex, nofollow",
+        "Cache-Control": "private, no-store",
       },
     });
+  } catch (err) {
+    console.error("[pdf] Rendern fehlgeschlagen:", err);
+    return pdfError(
+      "Das PDF konnte gerade nicht erzeugt werden. Bitte versucht es in ein paar Minuten erneut – die Web-Ansicht bleibt nutzbar."
+    );
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
   }
 }

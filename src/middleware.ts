@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { basicAuthMatches } from "@/lib/basic-auth";
 
 /** Basic Auth für den Admin-Bereich (Anforderung 4.5 / 8). */
+function unauthorized(): NextResponse {
+  return new NextResponse("Authentifizierung erforderlich.", {
+    status: 401,
+    headers: { "WWW-Authenticate": 'Basic realm="Admin", charset="UTF-8"' },
+  });
+}
+
 export function middleware(req: NextRequest) {
   const user = process.env.ADMIN_USER ?? "admin";
   const password = process.env.ADMIN_PASSWORD;
@@ -11,16 +19,10 @@ export function middleware(req: NextRequest) {
     });
   }
 
-  const header = req.headers.get("authorization");
-  if (header?.startsWith("Basic ")) {
-    const [u, p] = atob(header.slice(6)).split(":");
-    if (u === user && p === password) return NextResponse.next();
+  if (basicAuthMatches(req.headers.get("authorization"), user, password)) {
+    return NextResponse.next();
   }
-
-  return new NextResponse("Authentifizierung erforderlich.", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Admin"' },
-  });
+  return unauthorized();
 }
 
 export const config = {

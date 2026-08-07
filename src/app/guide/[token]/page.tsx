@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { guideContentSchema, type Chapter } from "@/lib/guide-content";
@@ -20,6 +21,30 @@ import { ChapterIcon } from "@/components/illustrations";
 import type { Place, Hike, Image as DbImage } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Der Guide-Link ist der einzige Zugangsschutz (Anforderung 8). Deshalb
+ * konsequent aus dem Index halten – ergänzend zu `robots.txt`, denn ein
+ * direkt geteilter Link erreicht Crawler auch ohne Verzeichnisdurchlauf.
+ * Der Titel macht Browser-Tabs und Lesezeichen unterscheidbar.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  const guide = await prisma.guide.findFirst({
+    where: { OR: [{ publicToken: token }, { shareToken: token }] },
+    select: { content: true },
+  });
+  const parsed = guide ? guideContentSchema.safeParse(guide.content) : null;
+  const title = parsed?.success ? parsed.data.intro.title : null;
+  return {
+    title: title ? `${title} · Reiseführer` : "Euer persönlicher Reiseführer",
+    robots: { index: false, follow: false, nocache: true },
+  };
+}
 
 /**
  * Interaktiver Browser-Reiseführer im Buch-Stil:
