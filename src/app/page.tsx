@@ -3,7 +3,7 @@ import { LakeHero } from "@/components/illustrations";
 
 export default function HomePage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <main id="inhalt" className="mx-auto max-w-3xl px-6 py-16">
       <div className="mb-10 overflow-hidden rounded-3xl border border-neutral-200 shadow-sm">
         <LakeHero className="block w-full" />
       </div>

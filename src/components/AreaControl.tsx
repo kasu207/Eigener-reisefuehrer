@@ -148,7 +148,9 @@ export default function AreaControl({
       <button onClick={() => change(1)} disabled={busy} title="mehr" aria-label="mehr" className={btn}>
         +
       </button>
-      {note && <span className="ml-1 text-xs font-normal text-neutral-500">{note}</span>}
+      <span role="status" aria-live="polite" className="ml-1 text-xs font-normal text-neutral-500">
+        {note}
+      </span>
 
       {exhausted && !candidate && (
         <button

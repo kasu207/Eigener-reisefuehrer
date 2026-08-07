@@ -14,6 +14,7 @@ import AreaControl from "@/components/AreaControl";
 import ShareBox from "@/components/ShareBox";
 import EmailCapture from "@/components/EmailCapture";
 import GuideProgress from "@/components/GuideProgress";
+import BackToTop from "@/components/BackToTop";
 import EditableText from "@/components/EditableText";
 import RemoveEntryButton from "@/components/RemoveEntryButton";
 import RegionInfoBlock from "@/components/RegionInfoBlock";
@@ -97,13 +98,21 @@ function FactBox({ rows }: { rows: [string, React.ReactNode][] }) {
   );
 }
 
-function EntryImage({ images }: { images: DbImage[] }) {
+function EntryImage({ images, name }: { images: DbImage[]; name: string }) {
   const img = images[0];
   if (!img) return null;
   return (
     <figure className="print-avoid-break mt-3">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={img.fileUrl} alt="" className="max-h-72 w-full rounded-xl object-cover" />
+      {/* Feste Höhe statt max-h: Ohne gespeicherte Bildmaße hat das Element
+          sonst bis zum Laden die Höhe 0 und der Text darunter springt.
+          eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={img.fileUrl}
+        alt={`Foto von ${name}`}
+        loading="lazy"
+        decoding="async"
+        className="h-72 w-full rounded-xl bg-neutral-100 object-cover"
+      />
       <figcaption className="mt-1 text-xs text-neutral-500">
         Foto: {img.author} · Lizenz: {img.license} ·{" "}
         <a href={img.sourceUrl} className="underline">
@@ -198,10 +207,28 @@ export default async function GuidePage({
 
   // ---- Render-Helfer -------------------------------------------------------
 
-  function EntryHeader({ id, name }: { id: string; name: string }) {
+  /**
+   * Ebene der Eintrags-Überschrift.
+   *
+   * In Ort-Kapiteln steht über den Einträgen noch ein h3-Unterabschnitt
+   * ("Essen & Trinken"), dort ist h4 richtig. In den Listen-Kapiteln
+   * (Wanderungen, Praktisches) und bei den Foto-Spots folgen die Einträge
+   * direkt auf das h2 – ein h4 wäre dort ein Ebenensprung, über den
+   * Screenreader-Nutzer beim Navigieren stolpern.
+   */
+  function EntryHeader({
+    id,
+    name,
+    level = 4,
+  }: {
+    id: string;
+    name: string;
+    level?: 3 | 4;
+  }) {
+    const H = level === 3 ? "h3" : "h4";
     return (
       <div className="flex items-baseline justify-between gap-3">
-        <h4 className="font-serif text-lg">{name}</h4>
+        <H className="font-serif text-lg">{name}</H>
         {isOwner && <RemoveEntryButton token={token} entryId={id} name={name} />}
       </div>
     );
@@ -230,7 +257,7 @@ export default async function GuidePage({
     );
   }
 
-  function renderPlaceEntry(entry: Chapter["entries"][number]) {
+  function renderPlaceEntry(entry: Chapter["entries"][number], level: 3 | 4 = 4) {
     const place = placeById.get(entry.id);
     if (!place) return null;
     const name = cleanName(place.name);
@@ -241,7 +268,7 @@ export default async function GuidePage({
     const mapsUrl = mapsHref(mapsQuery);
     return (
       <article key={entry.id} className="print-avoid-break border-t border-neutral-100 pt-4">
-        <EntryHeader id={entry.id} name={name} />
+        <EntryHeader id={entry.id} name={name} level={level} />
         <EntryTexts entry={entry} />
         <FactBox
           rows={[
@@ -267,19 +294,19 @@ export default async function GuidePage({
             ["Hinweis", verifiedNote(place.lastVerifiedAt)],
           ]}
         />
-        <EntryImage images={place.images} />
+        <EntryImage images={place.images} name={name} />
       </article>
     );
   }
 
-  function renderHikeEntry(entry: Chapter["entries"][number]) {
+  function renderHikeEntry(entry: Chapter["entries"][number], level: 3 | 4 = 4) {
     const hike = hikeById.get(entry.id);
     if (!hike) return null;
     const qr = hikeQr.get(hike.id);
     const startMapsUrl = mapsHref(`${hike.startLat},${hike.startLng}`);
     return (
       <article key={entry.id} className="print-avoid-break border-t border-neutral-200 pt-6">
-        <EntryHeader id={entry.id} name={cleanName(hike.name)} />
+        <EntryHeader id={entry.id} name={cleanName(hike.name)} level={level} />
         <EntryTexts entry={entry} />
         <FactBox
           rows={[
@@ -304,7 +331,7 @@ export default async function GuidePage({
           <div className="print-avoid-break mt-3 flex items-center gap-4 rounded-xl border border-neutral-200 p-3">
             {qr && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={qr} alt="QR-Code zur Tour" className="h-24 w-24 shrink-0" />
+              <img src={qr} alt="" loading="lazy" className="h-24 w-24 shrink-0" />
             )}
             <div className="text-sm">
               <p className="font-medium">Tour aufrufen</p>
@@ -330,7 +357,7 @@ export default async function GuidePage({
             </a>
           </p>
         )}
-        <EntryImage images={hike.images} />
+        <EntryImage images={hike.images} name={cleanName(hike.name)} />
       </article>
     );
   }
@@ -389,7 +416,7 @@ export default async function GuidePage({
                         {isOwner && <AreaControl token={token} area={area} locality={townLocality} />}
                       </h4>
                       {tierEntries.length > 0 ? (
-                        <div className="mt-2 space-y-5">{tierEntries.map(renderPlaceEntry)}</div>
+                        <div className="mt-2 space-y-5">{tierEntries.map((e) => renderPlaceEntry(e, 4))}</div>
                       ) : (
                         <p className="no-print mt-1 text-xs text-neutral-400">
                           Noch keine – mit „+" hinzufügen.
@@ -416,7 +443,7 @@ export default async function GuidePage({
                 )}
               </h3>
               {entries.length > 0 ? (
-                <div className="mt-3 space-y-5">{entries.map(renderPlaceEntry)}</div>
+                <div className="mt-3 space-y-5">{entries.map((e) => renderPlaceEntry(e, 4))}</div>
               ) : (
                 <p className="no-print mt-1 text-xs text-neutral-400">
                   Noch keine – mit „+" hinzufügen.
@@ -455,7 +482,7 @@ export default async function GuidePage({
           className="mt-3 leading-relaxed text-neutral-700"
         />
         <div className="mt-6 space-y-8">
-          {chapter.entries.map((e) => (isHikes ? renderHikeEntry(e) : renderPlaceEntry(e)))}
+          {chapter.entries.map((e) => (isHikes ? renderHikeEntry(e, 3) : renderPlaceEntry(e, 3)))}
         </div>
       </section>
     );
@@ -479,8 +506,9 @@ export default async function GuidePage({
     .sort((a, b) => a.name.localeCompare(b.name, "de"));
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-6">
+    <main id="inhalt" className="mx-auto max-w-3xl px-6 py-6">
       <GuideProgress token={token} active={regenerating} />
+      <BackToTop />
 
       {/* Cover */}
       <header className="py-12 text-center">
@@ -553,7 +581,7 @@ export default async function GuidePage({
       </section>
 
       {/* Inhaltsverzeichnis (klickbar – im Browser und beim Druck/PDF) */}
-      <nav className="print-break-before mt-12 rounded-2xl border border-neutral-200 bg-white p-6">
+      <nav aria-label="Inhaltsverzeichnis" className="print-break-before mt-12 rounded-2xl border border-neutral-200 bg-white p-6">
         <h2 className="font-serif text-2xl">Inhalt</h2>
         <ol className="mt-4 space-y-1 text-neutral-700">
           {regionInfos.length > 0 && (
@@ -661,7 +689,7 @@ export default async function GuidePage({
             {mapSpots.map((s) => (
               <li key={s.id} className="print-avoid-break border-t border-neutral-100 pt-4">
                 <div className="flex items-baseline justify-between gap-3">
-                  <h4 className="font-serif text-lg">{s.name}</h4>
+                  <h3 className="font-serif text-lg">{s.name}</h3>
                   {s.locality && <span className="text-sm text-neutral-500">{s.locality}</span>}
                 </div>
                 {s.note && <p className="mt-1 leading-relaxed">{s.note}</p>}
@@ -724,8 +752,10 @@ export default async function GuidePage({
           <h2 className="font-serif text-3xl">Register</h2>
         </div>
         <ul className="mt-6 columns-2 gap-8 text-sm leading-7">
-          {registerItems.map((e) => (
-            <li key={`${e.name}-${e.chapter}`} className="flex justify-between gap-2">
+          {registerItems.map((e, i) => (
+            // Index im Schlüssel: Gleichnamige Einträge im selben Kapitel
+            // (z. B. zwei „Lido") kollidieren sonst.
+            <li key={`${e.name}-${e.chapter}-${i}`} className="flex justify-between gap-2">
               <span>{e.name}</span>
               <span className="text-neutral-400">Kap. {e.chapter}</span>
             </li>

@@ -135,6 +135,12 @@ die Guides.
   `src/lib/basic-auth.ts`.
 - Der Worker ist ein eigener Prozess (`tsx src/worker/index.ts`), keine
   Next-Route. Ohne ihn bleiben Guides im Skeleton-Zustand.
+- **Kein `loading.tsx` unter `src/app/guide/[token]/`.** Das setzt die Seite
+  in eine Suspense-Grenze und streamt die Antwort – der 200er-Header ist
+  dann längst raus, wenn `notFound()` greift. Ein nicht existierender
+  Reiseführer antwortete damit mit Status 200 („Soft 404"). Nachgemessen im
+  Produktions-Build; die Guide-spezifische 404-Seite liegt in
+  `src/app/guide/not-found.tsx`.
 
 ## Weiterführende Dokumente
 

@@ -151,6 +151,7 @@ export default function FragebogenPage() {
   // Erst nach dem Wiederherstellen speichern, sonst überschreibt der leere
   // Initialzustand beim ersten Render sofort den vorhandenen Entwurf.
   const hydrated = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Entwurf laden (nur im Browser, deshalb im Effekt statt im Initialwert –
   // sonst weicht das Server-Rendering vom Client ab).
@@ -168,6 +169,18 @@ export default function FragebogenPage() {
     if (!hydrated.current) return;
     saveDraft(form, step);
   }, [form, step]);
+
+  /**
+   * Nach einem Schrittwechsel an den Anfang springen und den Fokus auf die
+   * Überschrift setzen. Ohne das bleibt man auf langen Schritten unten am
+   * „Weiter"-Knopf stehen und sieht die neuen Fragen gar nicht; Screenreader
+   * bekämen den Wechsel überhaupt nicht mit.
+   */
+  useEffect(() => {
+    if (!hydrated.current) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    headingRef.current?.focus();
+  }, [step]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -281,11 +294,13 @@ export default function FragebogenPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
+    <main id="inhalt" className="mx-auto max-w-2xl px-6 py-12">
       <p className="mb-2 text-sm uppercase tracking-widest text-(--color-accent)">
         Euer Reiseführer · Comer See
       </p>
-      <h1 className="font-serif text-3xl">Fragebogen</h1>
+      <h1 ref={headingRef} tabIndex={-1} className="font-serif text-3xl outline-none">
+        Fragebogen <span className="sr-only">– Schritt {step + 1} von {STEPS.length}: {STEPS[step]}</span>
+      </h1>
 
       {restored && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-(--color-accent-soft)/40 px-4 py-3 text-sm text-neutral-700">
@@ -330,7 +345,17 @@ export default function FragebogenPage() {
                   type="date"
                   className={inputCls}
                   value={form.dateFrom}
-                  onChange={(e) => set("dateFrom", e.target.value)}
+                  onChange={(e) => {
+                    const from = e.target.value;
+                    // Zieht die Abreise mit, wenn sie dadurch in der
+                    // Vergangenheit läge – sonst steht dort still ein
+                    // ungültiger Wert.
+                    setForm((f) => ({
+                      ...f,
+                      dateFrom: from,
+                      dateTo: f.dateTo && f.dateTo < from ? from : f.dateTo,
+                    }));
+                  }}
                 />
               </Field>
               <Field label="Abreise">
@@ -338,6 +363,9 @@ export default function FragebogenPage() {
                   type="date"
                   className={inputCls}
                   value={form.dateTo}
+                  // Verhindert den häufigsten Eingabefehler direkt im
+                  // Kalender, statt ihn erst beim „Weiter" zu melden.
+                  min={form.dateFrom || undefined}
                   onChange={(e) => set("dateTo", e.target.value)}
                 />
               </Field>
@@ -645,7 +673,11 @@ export default function FragebogenPage() {
           </>
         )}
 
-        {error && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
 
         <div className="flex justify-between pt-2">
           <button

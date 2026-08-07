@@ -67,7 +67,7 @@ export default function GuideProgress({
 
   if (phase === "done") {
     return (
-      <div className="no-print sticky top-0 z-20 -mx-6 mb-6 flex items-center gap-3 border-b border-emerald-200 bg-emerald-50/95 px-6 py-3 backdrop-blur">
+      <div role="status" aria-live="polite" className="no-print sticky top-0 z-20 -mx-6 mb-6 flex items-center gap-3 border-b border-emerald-200 bg-emerald-50/95 px-6 py-3 backdrop-blur">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
         <p className="text-sm font-medium text-emerald-800">
           Fertig! Euer Reiseführer ist vollständig generiert. Ihr könnt jetzt
@@ -79,7 +79,7 @@ export default function GuideProgress({
 
   if (phase === "failed") {
     return (
-      <div className="no-print sticky top-0 z-20 -mx-6 mb-6 flex items-center gap-3 border-b border-red-200 bg-red-50/95 px-6 py-3 backdrop-blur">
+      <div role="status" aria-live="polite" className="no-print sticky top-0 z-20 -mx-6 mb-6 flex items-center gap-3 border-b border-red-200 bg-red-50/95 px-6 py-3 backdrop-blur">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
         <p className="text-sm font-medium text-red-800">
           Bei der Generierung ist ein Fehler aufgetreten. Bitte prüft die
@@ -90,7 +90,7 @@ export default function GuideProgress({
   }
 
   return (
-    <div className="no-print sticky top-0 z-20 -mx-6 mb-6 flex items-center gap-3 border-b border-(--color-accent-soft) bg-(--color-paper)/95 px-6 py-3 backdrop-blur">
+    <div role="status" aria-live="polite" className="no-print sticky top-0 z-20 -mx-6 mb-6 flex items-center gap-3 border-b border-(--color-accent-soft) bg-(--color-paper)/95 px-6 py-3 backdrop-blur">
       <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-(--color-accent)" />
       <p className="text-sm text-neutral-700">
         Eure persönlichen Texte werden gerade geschrieben – ihr könnt schon

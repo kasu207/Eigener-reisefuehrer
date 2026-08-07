@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function BestaetigungPage() {
   return (
-    <main className="mx-auto max-w-2xl px-6 py-24 text-center">
+    <main id="inhalt" className="mx-auto max-w-2xl px-6 py-24 text-center">
       <p className="mb-4 text-sm uppercase tracking-widest text-(--color-accent)">Danke!</p>
       <h1 className="font-serif text-4xl">Euer Reiseführer wird geschrieben.</h1>
       <p className="mx-auto mt-6 max-w-md leading-relaxed text-neutral-700">

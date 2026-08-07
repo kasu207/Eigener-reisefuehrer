@@ -36,7 +36,7 @@ export default function BeitragenPage() {
     "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 focus:border-(--color-accent) focus:outline-none";
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
+    <main id="inhalt" className="mx-auto max-w-2xl px-6 py-16">
       <p className="mb-2 text-sm uppercase tracking-widest text-(--color-accent)">Mitmachen</p>
       <h1 className="font-serif text-4xl">Teile deine besten Quellen zum Comer See</h1>
       <p className="mt-4 leading-relaxed text-neutral-700">

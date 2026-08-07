@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { chromium } from "playwright-core";
 import { guideContentSchema } from "@/lib/guide-content";
+import { downloadFileName } from "@/lib/filename";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -9,18 +10,10 @@ export const maxDuration = 120;
 /**
  * Sprechender Dateiname statt immer „reisefuehrer.pdf" – wer mehrere Guides
  * herunterlädt, hat sonst reisefuehrer(1).pdf, (2)… im Download-Ordner.
- * Bewusst auf ASCII reduziert, damit der Header-Wert überall trägt.
  */
 function pdfFileName(content: unknown): string {
   const parsed = guideContentSchema.safeParse(content);
-  const slug = (parsed.success ? parsed.data.intro.title : "")
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/ß/g, "ss")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  return slug ? `${slug}.pdf` : "reisefuehrer.pdf";
+  return downloadFileName(parsed.success ? parsed.data.intro.title : "", "pdf", "reisefuehrer");
 }
 
 /** Lesbare Fehlerseite statt eines nackten 500ers im Download-Dialog. */
