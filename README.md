@@ -61,6 +61,18 @@ Admin-Interface: `http://localhost:3000/admin` (Basic Auth, `ADMIN_USER`/`ADMIN_
    Inhaltsverzeichnis). Die Templates sind so aufgebaut, dass in Phase 2 ein
    Druck-Renderer (PDF/X, Beschnitt) andocken kann, ohne sie neu zu bauen.
 
+## Was Reisende selbst am Guide ändern können
+
+- Jeden Text anklicken und umschreiben (bleibt bei Neu-Generierung erhalten).
+- Einträge über „Entfernen" aussortieren (kommen nicht zurück).
+- Umfang je Bereich und je Ort über die Regler `−`/`+` steuern.
+- **Eigenen Tipp ergänzen** („✎ Eigener Tipp"): Name, kurze Begründung und
+  optional eine Adresse. Der Ort wird geocodiert, erscheint auf der Karte und
+  bekommt einen generierten Text. Er ist an genau diesen Guide gebunden
+  (`Place.addedByRequestId`) und taucht in keinem fremden Reiseführer auf.
+- Ist der geprüfte Bestand für einen Ort erschöpft, lässt sich per
+  „🔎 Neuen Ort recherchieren" ein echter neuer Ort mit Quelle vorschlagen.
+
 ## Kuration (Admin)
 
 - CRUD für Regionen, Orte, Wanderungen; Karten-Klick setzt Koordinaten.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
+import { placeScopeFilter } from "@/lib/place-scope";
 import {
   AREA_KEYS,
   areaDefaults,
@@ -107,7 +108,7 @@ export async function POST(
     ? content.data.chapters.flatMap((c) => c.entries.map((e) => e.id))
     : [];
   const verified = await prisma.place.findMany({
-    where: { regionId: region.id },
+    where: { regionId: region.id, ...placeScopeFilter(guide.guideRequestId) },
     select: { id: true, name: true, type: true, priceLevel: true, locality: true, lat: true, lng: true },
   });
   for (const p of verified) {

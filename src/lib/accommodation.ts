@@ -3,6 +3,7 @@ import { questionnaireSchema, INTEREST_LABELS } from "./questionnaire";
 import { geocodePlace } from "./geocode";
 import { researchLocalityPlaces } from "./ai/research-locality";
 import { rateLimit } from "./rate-limit";
+import { placeScopeFilter } from "./place-scope";
 import { localityMatchesLabel } from "./areas";
 import { describeAiError } from "./ai/common";
 import type { PlaceType } from "@prisma/client";
@@ -50,7 +51,7 @@ export async function ensureAccommodationPlaces(requestId: string): Promise<void
   // zweiter Anker, der denselben Ort meint (andere Formulierung), sofort den
   // gerade erst angelegten Bestand statt ein zweites Mal zu recherchieren.
   const allPlaces = await prisma.place.findMany({
-    where: { regionId: region.id, status: "verified" },
+    where: { regionId: region.id, status: "verified", ...placeScopeFilter(requestId) },
     select: { name: true, locality: true },
   });
 

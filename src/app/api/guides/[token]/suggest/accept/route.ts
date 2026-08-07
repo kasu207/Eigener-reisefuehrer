@@ -18,6 +18,8 @@ const bodySchema = z.object({
   address: z.string().max(300).nullable().optional(),
   sourceUrl: z.string().max(2000).default(""),
   sourceTitle: z.string().max(300).default(""),
+  /** "research" = übernommener KI-Vorschlag, "own" = eigener Tipp des Nutzers. */
+  origin: z.enum(["research", "own"]).default("research"),
 });
 
 /**
@@ -106,11 +108,17 @@ export async function POST(
       address: d.address ?? "",
       tags: [],
       priceLevel: d.priceLevel ?? def.priceLevel ?? undefined,
-      editorNotes: `[Per „+"-Recherche im Guide hinzugefügt] ${d.note}${
-        d.sourceUrl ? ` (Quelle: ${d.sourceTitle || d.sourceUrl})` : ""
-      }`,
+      // Herkunft ehrlich benennen – die Redaktion muss im Admin auf einen
+      // Blick sehen, ob hier recherchiert oder frei getippt wurde.
+      editorNotes: `${
+        d.origin === "own"
+          ? "[Eigener Tipp der Nutzer:innen, nicht redaktionell geprüft]"
+          : '[Per „+"-Recherche im Guide hinzugefügt]'
+      } ${d.note}${d.sourceUrl ? ` (Quelle: ${d.sourceTitle || d.sourceUrl})` : ""}`,
       status: "verified",
       lastVerifiedAt: new Date(),
+      // Bindet den Ort an genau diesen Guide (siehe lib/place-scope.ts).
+      addedByRequestId: guide.guideRequestId,
     },
   });
 

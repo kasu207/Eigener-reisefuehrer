@@ -37,6 +37,48 @@ export default function AreaControl({
   // Bestand erschöpft -> Recherche NICHT automatisch starten (Kosten!),
   // sondern erst einen ausdrücklichen Button anbieten.
   const [exhausted, setExhausted] = useState(false);
+  // Eigener Tipp: Formular für einen Ort, den die Reisenden selbst kennen.
+  const [ownOpen, setOwnOpen] = useState(false);
+  const [own, setOwn] = useState({ name: "", note: "", address: "" });
+
+  async function addOwn() {
+    const name = own.name.trim();
+    if (!name) {
+      setNote("Bitte gebt dem Ort einen Namen.");
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/guides/${token}/suggest/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          area,
+          locality,
+          name,
+          note: own.note.trim(),
+          address: own.address.trim() || null,
+          origin: "own",
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setNote(data.error ?? "Konnte nicht hinzugefügt werden.");
+        return;
+      }
+      setOwn({ name: "", note: "", address: "" });
+      setOwnOpen(false);
+      setExhausted(false);
+      setNote(`„${name}" ist dabei – der Text dazu entsteht gerade.`);
+      router.refresh();
+      setTimeout(() => setNote(null), 6000);
+    } catch {
+      setNote("Netzwerkfehler.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function change(delta: number) {
     setBusy(true);
@@ -141,7 +183,10 @@ export default function AreaControl({
     "h-6 w-6 rounded-full border border-neutral-300 text-sm leading-none text-neutral-600 transition hover:border-neutral-500 disabled:opacity-40";
 
   return (
-    <span className="no-print ml-3 inline-flex flex-wrap items-center gap-1 align-middle">
+    // Eigene Typografie: Das Bedienelement steht neben Überschriften in
+    // Serife/Versalien/Akzentfarbe – ohne Reset erben Felder und Hinweise
+    // deren Stil und wirken wie Teil der Überschrift.
+    <span className="no-print ml-3 inline-flex flex-wrap items-start gap-1 align-middle font-sans text-base font-normal normal-case tracking-normal text-neutral-700">
       <button onClick={() => change(-1)} disabled={busy} title="weniger" aria-label="weniger" className={btn}>
         −
       </button>
@@ -152,8 +197,87 @@ export default function AreaControl({
         {note}
       </span>
 
-      {exhausted && !candidate && (
+      {/* Eigener Tipp – für Orte, die die Reisenden schon kennen. Immer
+          sichtbar (nicht erst, wenn der Bestand erschöpft ist): Wer seinen
+          Lieblingsort eintragen will, soll dafür nicht erst „+" leerklicken. */}
+      {locality && !ownOpen && !candidate && (
         <button
+          type="button"
+          onClick={() => {
+            setOwnOpen(true);
+            setNote(null);
+          }}
+          disabled={busy}
+          title="Einen Ort ergänzen, den ihr selbst kennt"
+          className="ml-1 rounded-full border border-neutral-300 px-2 py-0.5 text-xs font-normal text-neutral-600 transition hover:border-(--color-accent) hover:text-(--color-accent) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent) disabled:opacity-40"
+        >
+          ✎ Eigener Tipp
+        </button>
+      )}
+
+      {ownOpen && (
+        <span className="mt-2 block w-full max-w-md basis-full rounded-lg border border-neutral-300 bg-white p-3 text-left">
+          <span className="block text-sm font-semibold text-neutral-800">
+            Euer eigener Tipp{locality ? ` in ${locality}` : ""}
+          </span>
+          <input
+            value={own.name}
+            onChange={(e) => setOwn({ ...own, name: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && void addOwn()}
+            placeholder="Name, z. B. Trattoria del Porto"
+            maxLength={200}
+            autoFocus
+            aria-label="Name des Ortes"
+            className="mt-2 w-full rounded-lg border border-neutral-300 px-2 py-1.5 text-sm font-normal focus:border-(--color-accent) focus:outline-none"
+          />
+          <input
+            value={own.note}
+            onChange={(e) => setOwn({ ...own, note: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && void addOwn()}
+            placeholder="Warum? (optional) – fließt in euren Text ein"
+            maxLength={1000}
+            aria-label="Notiz zum Ort"
+            className="mt-1.5 w-full rounded-lg border border-neutral-300 px-2 py-1.5 text-sm font-normal focus:border-(--color-accent) focus:outline-none"
+          />
+          <input
+            value={own.address}
+            onChange={(e) => setOwn({ ...own, address: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && void addOwn()}
+            placeholder="Adresse (optional) – hilft der Karte"
+            maxLength={300}
+            aria-label="Adresse des Ortes"
+            className="mt-1.5 w-full rounded-lg border border-neutral-300 px-2 py-1.5 text-sm font-normal focus:border-(--color-accent) focus:outline-none"
+          />
+          <span className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={addOwn}
+              disabled={busy}
+              className="rounded-full bg-(--color-accent) px-3 py-1 text-xs font-medium text-white disabled:opacity-40"
+            >
+              {busy ? "Wird ergänzt …" : "In den Guide"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOwnOpen(false);
+                setOwn({ name: "", note: "", address: "" });
+              }}
+              disabled={busy}
+              className="rounded-full border border-neutral-300 px-3 py-1 text-xs text-neutral-600 disabled:opacity-40"
+            >
+              Abbrechen
+            </button>
+          </span>
+          <span className="mt-1 block text-[10px] text-neutral-400">
+            Euer Tipp erscheint nur in eurem Reiseführer.
+          </span>
+        </span>
+      )}
+
+      {exhausted && !candidate && !ownOpen && (
+        <button
+          type="button"
           onClick={research}
           disabled={busy}
           title="Sucht per Websuche einen neuen, echten Ort (kostet etwas Budget)"
@@ -164,7 +288,7 @@ export default function AreaControl({
       )}
 
       {candidate && (
-        <span className="mt-2 block w-full max-w-md rounded-lg border border-(--color-accent-soft) bg-(--color-paper) p-3 text-left">
+        <span className="mt-2 block w-full max-w-md basis-full rounded-lg border border-(--color-accent-soft) bg-(--color-paper) p-3 text-left">
           <span className="block text-sm font-semibold text-neutral-800">
             {candidate.name}
             {candidate.priceLevel ? ` · ${"€".repeat(candidate.priceLevel)}` : ""}

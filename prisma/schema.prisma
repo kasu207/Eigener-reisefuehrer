@@ -218,9 +218,17 @@ model Place {
   mustSee        Boolean       @default(false) @map("must_see")
   status         ContentStatus @default(draft)
   lastVerifiedAt DateTime?     @map("last_verified_at")
+  /// Vom Nutzer im eigenen Guide ergänzt: eigener Tipp oder übernommener
+  /// Recherche-Vorschlag. Solche Orte sind NUR für diesen einen Guide
+  /// sichtbar. Ohne diese Trennung landet der private Tipp von Kundin A im
+  /// Reiseführer von Kunde B – und das Versprechen „redaktionell geprüft"
+  /// wäre nicht mehr haltbar. Redaktion sieht sie im Admin und kann sie
+  /// durch Leeren des Feldes in den allgemeinen Bestand übernehmen.
+  addedByRequestId String?     @map("added_by_request_id")
   images         Image[]
   sources        Source[]
 
+  @@index([regionId, addedByRequestId])
   @@map("places")
 }
 

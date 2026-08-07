@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { questionnaireSchema, type Questionnaire } from "./questionnaire";
+import { placeScopeFilter } from "./place-scope";
 import {
   selectContent,
   haversineKm,
@@ -132,7 +133,7 @@ async function prepareGuideData(
   // vom Nutzer entfernte Einträge werden nicht wieder aufgenommen
   const places = (
     await prisma.place.findMany({
-      where: { regionId: region.id, status: "verified" },
+      where: { regionId: region.id, status: "verified", ...placeScopeFilter(request.id) },
       include: { sources: true },
     })
   ).filter((p) => !removedIds.has(p.id));

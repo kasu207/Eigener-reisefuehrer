@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
+import { placeScopeFilter } from "@/lib/place-scope";
 import {
   AREA_KEYS,
   parseAreaCounts,
@@ -123,7 +124,11 @@ export async function POST(
   if (!region) return NextResponse.json({ error: "Region fehlt." }, { status: 400 });
 
   const dbPlaces = await prisma.place.findMany({
-    where: { regionId: region.id, status: "verified" },
+    where: {
+      regionId: region.id,
+      status: "verified",
+      ...placeScopeFilter(guide.guideRequestId),
+    },
   });
   const dbHikes = await prisma.hike.findMany({
     where: { regionId: region.id, status: "verified" },
@@ -158,7 +163,10 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         changed: false,
-        message: `Kein weiterer Eintrag im Bestand für „${locality}" in diesem Bereich (aktuell ${shownInArea}). Lege im Admin passende Orte mit Ort/Stadt „${locality}" an.`,
+        // Diese Meldung liest der KUNDE, nicht die Redaktion – ein Verweis
+        // auf den Admin-Bereich, den er gar nicht öffnen kann, ist eine
+        // Sackgasse. Stattdessen auf die beiden Wege zeigen, die er hat.
+        message: `Für „${locality}" haben wir hier alles gezeigt, was wir geprüft haben (aktuell ${shownInArea}). Ergänzt einen eigenen Tipp oder lasst uns einen neuen Ort recherchieren.`,
       });
     }
     if (delta < 0 && shownInArea <= 0) {

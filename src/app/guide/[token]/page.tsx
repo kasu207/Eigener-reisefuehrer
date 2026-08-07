@@ -411,10 +411,12 @@ export default async function GuidePage({
                   if (tierEntries.length === 0 && !isOwner) return null;
                   return (
                     <div key={tier} className="mt-4">
-                      <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
-                        {title}
+                      <div className="flex flex-wrap items-baseline">
+                        <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+                          {title}
+                        </h4>
                         {isOwner && <AreaControl token={token} area={area} locality={townLocality} />}
-                      </h4>
+                      </div>
                       {tierEntries.length > 0 ? (
                         <div className="mt-2 space-y-5">{tierEntries.map((e) => renderPlaceEntry(e, 4))}</div>
                       ) : (
@@ -436,12 +438,12 @@ export default async function GuidePage({
           if (entries.length === 0 && !(isOwner && sub.area)) return null;
           return (
             <div key={sub.title} className="mt-8">
-              <h3 className="font-serif text-xl text-(--color-accent)">
-                {sub.title}
+              <div className="flex flex-wrap items-baseline">
+                <h3 className="font-serif text-xl text-(--color-accent)">{sub.title}</h3>
                 {isOwner && sub.area && (
                   <AreaControl token={token} area={sub.area} locality={townLocality} />
                 )}
-              </h3>
+              </div>
               {entries.length > 0 ? (
                 <div className="mt-3 space-y-5">{entries.map((e) => renderPlaceEntry(e, 4))}</div>
               ) : (

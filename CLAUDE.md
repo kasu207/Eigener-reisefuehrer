@@ -73,6 +73,15 @@ Eintrag auf die gespeicherte Auswahl zurückführbar ist.
 Zweite Invariante: **nur `status = "verified"`** gelangt aus Places/Hikes in
 Guides. `draft` ist Redaktionsbestand.
 
+Dritte Invariante: **Nutzer-Ergänzungen bleiben in ihrem Guide.** Orte, die
+im Guide selbst entstehen (eigener Tipp oder übernommener KI-Vorschlag),
+tragen `Place.addedByRequestId`. Jede Abfrage, die den Ortsbestand FÜR einen
+Guide lädt, muss `placeScopeFilter(requestId)` aus `src/lib/place-scope.ts`
+mitführen – sonst taucht der private Tipp einer Kundin im Reiseführer eines
+fremden Kunden auf und das Versprechen „redaktionell geprüft" bricht.
+Betroffen sind `guide-generation.ts`, die `area`- und `suggest`-Routen sowie
+`accommodation.ts`.
+
 ### Auswahl-Engine (`src/lib/selection.ts`)
 
 Rein deterministisch, ohne DB und ohne KI – arbeitet auf schlanken Typen
