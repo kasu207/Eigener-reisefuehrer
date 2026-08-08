@@ -28,6 +28,10 @@ export interface PlaceCandidate {
   sourceTitle: string;
   confidence: "hoch" | "mittel" | "niedrig";
   mapsUrl: string;
+  /** Exakte Koordinaten, falls die Quelle sie kennt (OpenStreetMap).
+   *  Fehlen sie (KI-Websuche), wird beim Übernehmen geocodiert. */
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface ResearchInput {

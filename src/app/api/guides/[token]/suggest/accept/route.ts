@@ -20,6 +20,9 @@ const bodySchema = z.object({
   sourceTitle: z.string().max(300).default(""),
   /** "research" = übernommener KI-Vorschlag, "own" = eigener Tipp des Nutzers. */
   origin: z.enum(["research", "own"]).default("research"),
+  /** Exakte Koordinaten, falls die Quelle sie kennt (OpenStreetMap). */
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
 });
 
 /**
@@ -83,7 +86,12 @@ export async function POST(
   // Koordinaten ermitteln (Fallback: Regions-Mitte)
   let lat = region.centerLat;
   let lng = region.centerLng;
-  if (placeLocality) {
+  if (d.lat != null && d.lng != null) {
+    // Quelle kennt die exakte Position (OSM) – keine Namenssuche nötig, die
+    // den Ort auch verfehlen könnte.
+    lat = d.lat;
+    lng = d.lng;
+  } else if (placeLocality) {
     const coords = await geocodePlace({
       label: `${d.name}, ${placeLocality}`,
       regionName: region.name,

@@ -161,6 +161,11 @@ export async function searchOsmPlaceCandidates(input: OsmSearchInput): Promise<P
         sourceTitle: "OpenStreetMap-Mitwirkende",
         confidence: confidenceFrom(tags),
         mapsUrl: mapsHref(address ?? `${name}, ${input.locality}`),
+        // Koordinaten mitgeben: Sie sind exakt und ersparen beim Übernehmen
+        // eine Geocoding-Anfrage, die den Ort per Namenssuche auch verfehlen
+        // könnte.
+        lat,
+        lng,
       },
       d,
     });

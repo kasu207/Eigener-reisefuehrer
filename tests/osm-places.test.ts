@@ -109,6 +109,15 @@ describe("searchOsmPlaceCandidates", () => {
     expect(out[0].address).toBe("Via Roma 1");
     expect(out[0].sourceUrl).toBe("https://www.openstreetmap.org/node/2");
     expect(out[0].sourceTitle).toBe("OpenStreetMap-Mitwirkende");
+    // Koordinaten müssen durchgereicht werden: Beim Übernehmen in den Guide
+    // ersparen sie eine Geocoding-Anfrage, die den Ort per Namenssuche auch
+    // verfehlen könnte (Regression: früher fielen sie unter den Tisch).
+    expect(out[0].lat).toBe(45.8701);
+    expect(out[0].lng).toBe(9.1101);
+    // Auch für Elemente mit "center" statt lat/lon (ways/relations)
+    const weitWeg = out.find((c) => c.name === "Weit weg Café")!;
+    expect(weitWeg.lat).toBe(45.9);
+    expect(weitWeg.lng).toBe(9.2);
   });
 
   it("liefert [] für nicht unterstützte Bereiche (z. B. hikes) ohne Netzaufruf", async () => {

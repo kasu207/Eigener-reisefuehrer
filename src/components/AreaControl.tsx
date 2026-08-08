@@ -13,6 +13,8 @@ interface Candidate {
   sourceTitle: string;
   confidence: string;
   mapsUrl: string;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 /**
@@ -161,6 +163,8 @@ export default function AreaControl({
           address: candidate.address,
           sourceUrl: candidate.sourceUrl,
           sourceTitle: candidate.sourceTitle,
+          lat: candidate.lat ?? null,
+          lng: candidate.lng ?? null,
         }),
       });
       if (res.ok) {

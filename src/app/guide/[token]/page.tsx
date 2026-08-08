@@ -410,7 +410,11 @@ export default async function GuidePage({
                   );
                   if (tierEntries.length === 0 && !isOwner) return null;
                   return (
-                    <div key={tier} className="mt-4">
+                    // Leere Bänder zeigen wir nur der Besitzerin (zum
+                    // Befüllen) – im PDF/Druck bliebe sonst eine Überschrift
+                    // ohne Inhalt stehen. Genau das lässt ein bezahltes
+                    // Produkt unfertig wirken.
+                    <div key={tier} className={tierEntries.length === 0 ? "mt-4 print:hidden" : "mt-4"}>
                       <div className="flex flex-wrap items-baseline">
                         <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
                           {title}
@@ -437,7 +441,7 @@ export default async function GuidePage({
           // Bereiche mit Regler auch bei 0 zeigen (zum Hinzufügen), sonst nur wenn befüllt
           if (entries.length === 0 && !(isOwner && sub.area)) return null;
           return (
-            <div key={sub.title} className="mt-8">
+            <div key={sub.title} className={entries.length === 0 ? "mt-8 print:hidden" : "mt-8"}>
               <div className="flex flex-wrap items-baseline">
                 <h3 className="font-serif text-xl text-(--color-accent)">{sub.title}</h3>
                 {isOwner && sub.area && (

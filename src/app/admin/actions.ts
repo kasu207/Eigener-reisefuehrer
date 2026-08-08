@@ -11,6 +11,9 @@ import {
 import { extractPlacesFromText, UnsafeExtractionError } from "@/lib/ai/extract-places";
 import { fetchYoutubeTranscript } from "@/lib/youtube/transcript";
 import { BROWSER_HEADERS } from "@/lib/http";
+import { searchOsmPlaceCandidates } from "@/lib/osm-places";
+import { geocodePlace } from "@/lib/geocode";
+import { areaDefaults, AREA_LABELS, type AreaKey } from "@/lib/areas";
 import type {
   PlaceType,
   Access,
@@ -648,4 +651,114 @@ export async function requeueGuideRequest(fd: FormData) {
     data: { status: "pending", error: null },
   });
   revalidatePath("/admin");
+}
+
+// ---------- Bestand aus OpenStreetMap füllen ----------
+
+/**
+ * Massen-Import echter Orte aus OpenStreetMap für einen Ort/Stadtteil.
+ *
+ * Der Engpass des Produkts ist nicht der Code, sondern der Ortsbestand: Ohne
+ * genug geprüfte Einträge zeigt der Guide leere Abschnitte und das „+" meldet
+ * sofort „Bestand erschöpft". Handarbeit pro Ort ist zu langsam.
+ *
+ * Bewusst OSM statt KI: echte Namen, echte Koordinaten, echte Adressen, mit
+ * Quelllink – nichts davon ist erfunden. Alles landet trotzdem als
+ * **Entwurf** (`draft`), denn OSM kann veraltet sein und Preisniveau,
+ * Öffnungszeiten und Eignung entscheidet die Redaktion. Nur `verified`
+ * gelangt in Guides – diese Invariante bleibt unangetastet.
+ */
+export async function importOsmPlaces(fd: FormData) {
+  const regionId = str(fd, "regionId");
+  const locality = str(fd, "locality");
+  if (!locality) redirect("/admin/kuratieren?error=Bitte+einen+Ort+angeben");
+
+  const region = await prisma.region.findUnique({ where: { id: regionId } });
+  if (!region) throw new Error("Region nicht gefunden");
+
+  // Mittelpunkt des Ortes bestimmen – ohne Koordinaten keine Umkreissuche.
+  const coords = await geocodePlace({
+    label: locality,
+    regionName: region.name,
+    country: region.country,
+    centerLat: region.centerLat,
+    centerLng: region.centerLng,
+  });
+  if (!coords) {
+    redirect(
+      `/admin/kuratieren?error=${encodeURIComponent(
+        `Ort „${locality}" konnte nicht verortet werden (Geocoding). Schreibweise prüfen oder später erneut versuchen.`
+      )}`
+    );
+  }
+
+  // Bereits vorhandene Namen der Region NICHT erneut anlegen (idempotent).
+  const existing = await prisma.place.findMany({
+    where: { regionId },
+    select: { name: true },
+  });
+  const excludeNames = existing.map((p) => p.name);
+
+  const areas: AreaKey[] = ["sights", "foodMid", "foodBudget", "bars", "hotels"];
+  let created = 0;
+  const perArea: string[] = [];
+
+  for (const area of areas) {
+    const candidates = await searchOsmPlaceCandidates({
+      area,
+      locality,
+      lat: coords.lat,
+      lng: coords.lng,
+      excludeNames: [...excludeNames],
+    });
+    const def = areaDefaults(area);
+    let n = 0;
+    for (const c of candidates) {
+      // Innerhalb dieses Laufs ebenfalls entduplizieren
+      if (excludeNames.some((e) => e.toLowerCase() === c.name.toLowerCase())) continue;
+      excludeNames.push(c.name);
+
+      const place = await prisma.place.create({
+        data: {
+          regionId,
+          type: def.type as PlaceType,
+          name: c.name,
+          locality,
+          lat: c.lat ?? coords.lat,
+          lng: c.lng ?? coords.lng,
+          address: c.address ?? "",
+          tags: [],
+          // Preisniveau kommt NICHT aus OSM – die Redaktion setzt es.
+          editorNotes: `[Aus OpenStreetMap importiert · Sicherheit: ${c.confidence} · PREIS, ÖFFNUNGSZEITEN & EIGNUNG PRÜFEN] ${c.note}`,
+          status: "draft",
+        },
+      });
+      if (c.sourceUrl) {
+        await prisma.source.create({
+          data: {
+            placeId: place.id,
+            url: c.sourceUrl,
+            sourceType: "portal",
+            excerpt: "OpenStreetMap-Eintrag (ODbL)",
+          },
+        });
+      }
+      n += 1;
+      created += 1;
+    }
+    if (n > 0) perArea.push(`${AREA_LABELS[area]}: ${n}`);
+  }
+
+  revalidatePath("/admin/kuratieren");
+  revalidatePath("/admin/places");
+  if (created === 0) {
+    redirect(
+      `/admin/kuratieren?error=${encodeURIComponent(
+        `OpenStreetMap lieferte für „${locality}" nichts Neues – entweder ist alles schon angelegt oder die Abdeckung ist dort dünn.`
+      )}`
+    );
+  }
+  redirect(
+    `/admin/kuratieren?created=${created}&osm=${encodeURIComponent(perArea.join(" · "))}`
+  );
 }

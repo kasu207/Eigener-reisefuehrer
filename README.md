@@ -73,8 +73,25 @@ Admin-Interface: `http://localhost:3000/admin` (Basic Auth, `ADMIN_USER`/`ADMIN_
 - Ist der geprüfte Bestand für einen Ort erschöpft, lässt sich per
   „🔎 Neuen Ort recherchieren" ein echter neuer Ort mit Quelle vorschlagen.
 
+## Vor dem ersten Verkauf: `/admin/startklar`
+
+Eine Seite, die ehrlich sagt, was noch fehlt: Impressum-Pflichtangaben,
+KI-Modus, Ortsbestand je Bereich (Ist gegen Soll), stehender Worker,
+schwaches Admin-Passwort. Blocker sind Dinge, die zahlende Kunden direkt
+treffen würden. Was sie **nicht** prüfen kann, steht dort ebenfalls:
+Textqualität, Widerrufsbelehrung/AGB, Zahlungsabwicklung, AV-Verträge.
+
+Die Impressum-Angaben kommen aus der Umgebung (`OPERATOR_*`, siehe
+`.env.example`), damit sie ohne Deployment änderbar sind.
+
 ## Kuration (Admin)
 
+- **Orte aus OpenStreetMap importieren** (`/admin/kuratieren`): füllt für
+  einen Ort in einem Rutsch Sehenswürdigkeiten, Restaurants, Bars und
+  Unterkünfte mit echten Namen, Koordinaten und Adressen – kostenlos, ohne
+  KI, mit OSM-Quelllink. Alles als **Entwurf**; Preisniveau, Öffnungszeiten
+  und Eignung entscheidet die Redaktion. Idempotent: bekannte Namen werden
+  übersprungen.
 - CRUD für Regionen, Orte, Wanderungen; Karten-Klick setzt Koordinaten.
 - Prüfstatus `draft`/`verified` mit `last_verified_at` – **nur `verified`
   gelangt in Guides**.

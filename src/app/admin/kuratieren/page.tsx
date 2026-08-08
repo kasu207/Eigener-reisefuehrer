@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { AI_MODEL } from "@/lib/ai/model";
 import { isMock } from "@/lib/ai/mock";
-import { generatePlaceDrafts, analyzeYoutubeForPlaces } from "../actions";
+import { generatePlaceDrafts, analyzeYoutubeForPlaces, importOsmPlaces } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +36,7 @@ export default async function KuratierenPage({
     error?: string;
     videos?: string;
     ythint?: string;
+    osm?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -69,7 +70,18 @@ export default async function KuratierenPage({
         </p>
       </div>
 
-      {sp.created && !sp.videos && (
+      {sp.created && sp.osm && (
+        <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <strong>{sp.created} Orte aus OpenStreetMap importiert</strong> ({sp.osm}).
+          Sie liegen als <strong>Entwurf</strong> unter{" "}
+          <Link href="/admin/places" className="underline">
+            Orte
+          </Link>
+          . Preisniveau, Öffnungszeiten und Eignung ergänzen, dann auf „Geprüft"
+          stellen – erst dann erscheinen sie in Reiseführern.
+        </div>
+      )}
+      {sp.created && !sp.videos && !sp.osm && (
         <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {sp.created} Entwurf/Entwürfe angelegt. Prüfe sie unter{" "}
           <Link href="/admin/places" className="underline">
@@ -111,6 +123,39 @@ export default async function KuratierenPage({
           <code>claude-sonnet-4-6</code> – deutlich günstiger als Opus). Nach
           einer Änderung die Container neu starten:{" "}
           <code>docker compose -f docker-compose.prod.yml up -d</code>.
+        </p>
+      </section>
+
+      {/* Bestand aus OpenStreetMap füllen – der schnellste Weg zu genug Inhalt */}
+      <section className="rounded border border-(--color-accent-soft) bg-(--color-accent-soft)/20 p-4">
+        <h3 className="mb-2 font-serif text-lg">Orte aus OpenStreetMap importieren</h3>
+        <p className="mb-3 text-sm text-neutral-700">
+          Holt für einen Ort in einem Rutsch echte Sehenswürdigkeiten,
+          Restaurants, Bars und Unterkünfte samt <strong>echten Koordinaten und
+          Adressen</strong> – kostenlos, ohne KI. Nichts davon ist erfunden.
+          Alles landet als <strong>Entwurf</strong>: Preisniveau,
+          Öffnungszeiten und Eignung entscheidest du, dann auf „Geprüft"
+          stellen. Bereits vorhandene Namen werden übersprungen, mehrfaches
+          Ausführen schadet also nicht.
+        </p>
+        <form action={importOsmPlaces} className="flex flex-wrap items-end gap-3">
+          <input type="hidden" name="regionId" value={defaultRegion?.id ?? ""} />
+          <label className="block text-sm">
+            <span className="mb-1 block text-neutral-600">Ort/Stadt</span>
+            <input
+              name="locality"
+              placeholder="z. B. Bellagio"
+              className={inputCls}
+              required
+            />
+          </label>
+          <button className="rounded bg-(--color-ink) px-4 py-1.5 text-sm text-white transition hover:bg-(--color-accent)">
+            Importieren
+          </button>
+        </form>
+        <p className="mt-2 text-xs text-neutral-500">
+          Datenquelle: OpenStreetMap-Mitwirkende (ODbL). Jeder importierte Ort
+          bekommt den OSM-Eintrag als Quelle hinterlegt.
         </p>
       </section>
 
