@@ -38,6 +38,15 @@ services:
       EUROPEANA_API_KEY: ${EUROPEANA_API_KEY:-}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD in .env setzen}
+      # Impressum (§ 5 DDG). Ohne diese Angaben bleibt /impressum leer und
+      # /admin/startklar meldet dauerhaft einen Blocker.
+      OPERATOR_NAME: ${OPERATOR_NAME:-}
+      OPERATOR_STREET: ${OPERATOR_STREET:-}
+      OPERATOR_CITY: ${OPERATOR_CITY:-}
+      OPERATOR_EMAIL: ${OPERATOR_EMAIL:-}
+      OPERATOR_VAT_ID: ${OPERATOR_VAT_ID:-}
+      OPERATOR_RESPONSIBLE: ${OPERATOR_RESPONSIBLE:-}
+      OPERATOR_PHONE: ${OPERATOR_PHONE:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
       DATA_RETENTION_MONTHS: ${DATA_RETENTION_MONTHS:-12}

@@ -35,6 +35,17 @@ RESEND_API_KEY=
 MAIL_FROM=Reiseführer <guide@deine-domain.de>
 
 DATA_RETENTION_MONTHS=12
+
+# Impressum (Pflicht vor gewerblichem Betrieb, § 5 DDG).
+# Fehlt etwas, meldet /admin/startklar das als Blocker.
+OPERATOR_NAME=
+OPERATOR_STREET=
+OPERATOR_CITY=
+OPERATOR_EMAIL=
+# Optional
+OPERATOR_VAT_ID=
+OPERATOR_RESPONSIBLE=
+OPERATOR_PHONE=
 EOF
 chmod 600 .env
 ```
@@ -82,6 +93,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml ps          # alle 3 "running"?
 docker compose -f docker-compose.prod.yml logs -f app worker
 ```
+
+## 6a. Nach dem Update prüfen: `/admin/startklar`
+
+`http://<server>/admin/startklar` listet, was dem bezahlten Betrieb noch im
+Weg steht: fehlende Impressum-Angaben, Mock-Modus, zu dünner Ortsbestand,
+stehender Worker, schwaches Admin-Passwort. Das ist der schnellste Weg zu
+sehen, ob ein Update sauber angekommen ist.
+
+Schema-Änderungen und die Postgres-Extensions (`pg_trgm`, `unaccent`)
+wendet der app-Container beim Start selbst an (`prisma db push`) – dafür
+ist kein eigener Befehl nötig.
 
 ## 7. Auf Live-KI umstellen
 
