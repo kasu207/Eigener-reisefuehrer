@@ -18,6 +18,54 @@ body {
   font-family: var(--font-serif);
 }
 
+/* Das Inhaltsverzeichnis verlinkt Kapitel per Anker. Ohne das sprang die
+   Seite hart – bei einem 33.000 px langen Dokument verliert man dabei die
+   Orientierung. */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Überschriften über mehrere Zeilen gleichmäßig umbrechen, Fließtext ohne
+   Hurenkinder (einzelnes Wort in der letzten Zeile). */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* Lesbare Zeilenlänge für Fließtext. Der Guide ist ein Lese-Produkt; über
+   die volle Spaltenbreite (~95 Zeichen) verliert das Auge beim Zeilenwechsel
+   die Zeile. Fakten-Boxen, Bilder und Karte bleiben bewusst breiter. */
+.measure {
+  max-width: 68ch;
+}
+
+/* Zahlen in den Fakten-Boxen (Distanz, Höhenmeter, Preise) sollen
+   untereinander fluchten. */
+dl,
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wer Bewegung reduziert haben will, bekommt sie nicht – gilt auch für die
+   pulsierenden Platzhalter während der Generierung. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Print-CSS für den A5-PDF-Export (Anforderung 4.4).
    Das Layout ist so aufgebaut, dass ein späterer Druck-Renderer (PDF/X,
    Beschnitt) nur diese Regeln erweitern muss, nicht die Templates. */

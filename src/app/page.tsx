@@ -22,23 +22,47 @@ export default function HomePage() {
       <div className="mt-10">
         <Link
           href="/fragebogen"
-          className="inline-block rounded-full bg-(--color-ink) px-8 py-4 text-lg text-white transition hover:bg-(--color-accent)"
+          className="inline-block rounded-full bg-(--color-ink) px-8 py-4 text-lg text-white shadow-sm transition hover:bg-(--color-accent) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent) focus-visible:ring-offset-2 active:translate-y-px"
         >
           Fragebogen starten
         </Link>
       </div>
-      <div className="mt-16 grid gap-8 sm:grid-cols-3">
+      {/* Nummerierte Liste statt drei gleich breiter Spalten: Die drei
+          Aussagen bauen aufeinander auf (geprüfte Daten → persönliche
+          Auswahl → Ergebnis), das zeigt eine Abfolge besser als ein Raster.
+          Nebenbei verschwindet das generischste aller Layout-Muster. */}
+      <ol className="mt-16 border-t border-neutral-200">
         {[
-          ["Kuratierte Datenbank", "Jede Empfehlung ist redaktionell geprüft – keine erfundenen Fakten."],
-          ["Wirklich persönlich", "Auswahl und Texte richten sich nach euren Interessen, eurem Tempo und eurer Küche."],
-          ["Web & PDF", "Lesbar auf dem Handy, als A5-PDF zum Mitnehmen."],
-        ].map(([title, text]) => (
-          <div key={title}>
-            <h2 className="font-serif text-xl">{title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-neutral-600">{text}</p>
-          </div>
+          [
+            "Redaktionell geprüft",
+            "Jede Empfehlung stammt aus unserer kuratierten Orte-Datenbank. Adressen, Preise und Öffnungszeiten kommen aus geprüften Einträgen – nicht aus einem Sprachmodell.",
+          ],
+          [
+            "Auf euch zugeschnitten",
+            "Auswahl und Texte richten sich nach euren Interessen, eurem Tempo, eurer Küche und eurer Unterkunft. Zwei Paare bekommen zwei verschiedene Reiseführer.",
+          ],
+          [
+            "Zum Lesen und Mitnehmen",
+            "Im Browser jederzeit anpassbar, als A5-PDF zum Ausdrucken oder Offline-Lesen unterwegs.",
+          ],
+        ].map(([title, text], i) => (
+          <li
+            key={title}
+            className="grid gap-x-6 gap-y-1 border-b border-neutral-200 py-6 sm:grid-cols-[3rem_1fr]"
+          >
+            <span
+              aria-hidden="true"
+              className="font-serif text-2xl text-(--color-accent)/45 sm:text-3xl"
+            >
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <div>
+              <h2 className="font-serif text-xl">{title}</h2>
+              <p className="measure mt-2 text-sm leading-relaxed text-neutral-600">{text}</p>
+            </div>
+          </li>
         ))}
-      </div>
+      </ol>
       <div className="mt-14 rounded-2xl bg-(--color-accent-soft)/40 p-6">
         <h2 className="font-serif text-xl">Du kennst gute Quellen zum Comer See?</h2>
         <p className="mt-2 text-sm text-neutral-700">

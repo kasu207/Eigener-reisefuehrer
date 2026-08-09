@@ -2,10 +2,26 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
 
+const DESCRIPTION =
+  "Kuratierte, persönliche Reiseführer – erstellt aus euren Antworten und einer geprüften Orte-Datenbank.";
+
 export const metadata: Metadata = {
-  title: "Euer persönlicher Reiseführer",
-  description:
-    "Kuratierte, persönliche Reiseführer – erstellt aus euren Antworten und einer geprüften Orte-Datenbank.",
+  // Template statt fixem Titel: Unterseiten setzen nur ihren eigenen Teil.
+  title: {
+    default: "Euer persönlicher Reiseführer",
+    template: "%s · Persönlicher Reiseführer",
+  },
+  description: DESCRIPTION,
+  // Ohne diese Angaben zeigt ein geteilter Link in Messengern und sozialen
+  // Netzen nur die nackte URL.
+  openGraph: {
+    type: "website",
+    locale: "de_DE",
+    siteName: "Persönlicher Reiseführer",
+    title: "Euer persönlicher Reiseführer",
+    description: DESCRIPTION,
+  },
+  twitter: { card: "summary", title: "Euer persönlicher Reiseführer", description: DESCRIPTION },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

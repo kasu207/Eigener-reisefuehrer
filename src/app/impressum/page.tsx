@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { siteOperator, missingOperatorFields, OPERATOR_FIELD_LABELS } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Impressum",
+  description: "Anbieterkennzeichnung nach § 5 DDG.",
+};
 
 /**
  * Impressum nach § 5 DDG. Inhalte kommen aus der Umgebung

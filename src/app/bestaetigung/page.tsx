@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Bestätigung",
+  description: "Euer Reiseführer wird erstellt.",
+};
+
 import Link from "next/link";
 
 export default function BestaetigungPage() {

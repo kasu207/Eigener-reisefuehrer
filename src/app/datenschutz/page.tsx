@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Datenschutz",
+  description: "Wie wir eure Angaben verarbeiten und wann wir sie löschen.",
+};
+
 export default function DatenschutzPage() {
   return (
     <main id="inhalt" className="mx-auto max-w-2xl px-6 py-16">

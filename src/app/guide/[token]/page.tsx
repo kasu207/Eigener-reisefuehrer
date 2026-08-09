@@ -15,10 +15,11 @@ import ShareBox from "@/components/ShareBox";
 import EmailCapture from "@/components/EmailCapture";
 import GuideProgress from "@/components/GuideProgress";
 import BackToTop from "@/components/BackToTop";
+import OwnerToolbar from "@/components/OwnerToolbar";
 import EditableText from "@/components/EditableText";
 import RemoveEntryButton from "@/components/RemoveEntryButton";
 import RegionInfoBlock from "@/components/RegionInfoBlock";
-import { ChapterIcon } from "@/components/illustrations";
+import { ChapterIcon, LakeHero } from "@/components/illustrations";
 import type { Place, Hike, Image as DbImage } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +43,8 @@ export async function generateMetadata({
   const parsed = guide ? guideContentSchema.safeParse(guide.content) : null;
   const title = parsed?.success ? parsed.data.intro.title : null;
   return {
-    title: title ? `${title} · Reiseführer` : "Euer persönlicher Reiseführer",
+    // Nur der eigene Teil – den Zusatz hängt das Template im Root-Layout an.
+    title: title || "Euer Reiseführer",
     robots: { index: false, follow: false, nocache: true },
   };
 }
@@ -243,7 +245,7 @@ export default async function GuidePage({
           target={{ kind: "entry", entryId: entry.id, field: "personalText" }}
           value={entry.personalText}
           placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken, um einen Text zu schreiben …"}
-          className="mt-1 leading-relaxed"
+          className="measure mt-1 leading-relaxed"
         />
         <EditableText
           token={token}
@@ -393,7 +395,7 @@ export default async function GuidePage({
           target={{ kind: "chapter", chapterKey: chapter.key, field: "introText" }}
           value={chapter.introText}
           placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken für ein Kurzporträt des Ortes …"}
-          className="mt-3 leading-relaxed text-neutral-700"
+          className="measure mt-3 leading-relaxed text-neutral-700"
         />
         {SUBSECTIONS.map((sub) => {
           if (sub.kind === "food") {
@@ -485,7 +487,7 @@ export default async function GuidePage({
           target={{ kind: "chapter", chapterKey: chapter.key, field: "introText" }}
           value={chapter.introText}
           placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken für eine Kapitel-Einleitung …"}
-          className="mt-3 leading-relaxed text-neutral-700"
+          className="measure mt-3 leading-relaxed text-neutral-700"
         />
         <div className="mt-6 space-y-8">
           {chapter.entries.map((e) => (isHikes ? renderHikeEntry(e, 3) : renderPlaceEntry(e, 3)))}
@@ -532,45 +534,61 @@ export default async function GuidePage({
           className="mt-4 font-serif text-5xl leading-tight"
         />
         <p className="mt-4 text-xl text-neutral-600">für {q.firstNames}</p>
-        <div className="no-print mt-8 flex flex-wrap justify-center gap-3">
+
+        {/* Titelbild: Die Startseite hatte eine Illustration, das bezahlte
+            Artefakt selbst nicht – das Cover wirkte wie ein Rohentwurf.
+            Druckt mit, ohne eine eigene Seite zu belegen. */}
+        <div className="mx-auto mt-10 max-w-xl overflow-hidden rounded-2xl border border-(--color-accent-soft)">
+          <LakeHero className="block w-full" />
+        </div>
+
+        {/* PDF ist die Hauptaktion. Markdown ist ein Prüf-/Debug-Export und
+            stand vorher als gleichwertiger Knopf daneben. */}
+        <div className="no-print mt-8 flex flex-col items-center gap-3">
           <a
             href={`/guide/${token}/pdf`}
-            className="inline-block rounded-full border border-(--color-ink) px-6 py-3 text-sm transition hover:bg-(--color-ink) hover:text-white"
+            className="inline-block rounded-full bg-(--color-ink) px-7 py-3 text-sm text-white shadow-sm transition hover:bg-(--color-accent) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent) active:translate-y-px"
           >
             Als PDF herunterladen (A5)
           </a>
           <a
             href={`/guide/${token}/md`}
-            className="inline-block rounded-full border border-neutral-400 px-6 py-3 text-sm text-neutral-600 transition hover:bg-neutral-100"
-            title="Textfassung zum Prüfen/Teilen (Debugging)"
+            className="rounded text-xs text-neutral-500 underline underline-offset-2 transition hover:text-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent)"
+            title="Reine Textfassung zum Prüfen"
           >
-            Als Markdown (.md)
+            oder als Textfassung (.md)
           </a>
         </div>
       </header>
 
-      {/* Besitzer-Funktionen */}
+      {/* Besitzer-Funktionen. Die E-Mail-Erfassung bleibt sichtbar, solange
+          keine hinterlegt ist – wer den Link verliert, verliert den Guide.
+          Alles Übrige liegt in einer Leiste, damit der Reiseführer selbst
+          den ersten Bildschirm bekommt. */}
       {isOwner && (
-        <div className="no-print mb-10 space-y-4">
-          <EmailCapture
-            token={token}
-            alreadySet={Boolean(guide.guideRequest.email)}
-            regenerating={regenerating}
-          />
-          <FineTunePanel
-            token={token}
-            areaCounts={parseAreaCounts(guide.guideRequest.areaCounts)}
-            regenerating={regenerating}
-          />
-          <AdjustPanel token={token} regenerating={regenerating} />
-          <ShareBox
-            shareUrl={`${process.env.APP_URL ?? "http://localhost:3000"}/guide/${guide.shareToken}`}
-          />
-          <p className="rounded-xl bg-(--color-accent-soft)/30 px-4 py-2 text-xs text-neutral-600">
-            Tipp: Klickt auf einen beliebigen Text, um ihn direkt zu bearbeiten.
-            Einträge lassen sich über „Entfernen" aussortieren – beides bleibt
-            auch bei einer Neu-Generierung erhalten.
-          </p>
+        <div className="no-print mb-10 space-y-3">
+          {!guide.guideRequest.email && (
+            <EmailCapture token={token} alreadySet={false} regenerating={regenerating} />
+          )}
+          <OwnerToolbar>
+            {guide.guideRequest.email && (
+              <EmailCapture token={token} alreadySet regenerating={regenerating} />
+            )}
+            <FineTunePanel
+              token={token}
+              areaCounts={parseAreaCounts(guide.guideRequest.areaCounts)}
+              regenerating={regenerating}
+            />
+            <AdjustPanel token={token} regenerating={regenerating} />
+            <ShareBox
+              shareUrl={`${process.env.APP_URL ?? "http://localhost:3000"}/guide/${guide.shareToken}`}
+            />
+            <p className="rounded-xl bg-(--color-accent-soft)/30 px-4 py-2 text-xs text-neutral-600">
+              Tipp: Klickt auf einen beliebigen Text, um ihn direkt zu bearbeiten.
+              Einträge lassen sich über „Entfernen" aussortieren – beides bleibt
+              auch bei einer Neu-Generierung erhalten.
+            </p>
+          </OwnerToolbar>
         </div>
       )}
 
@@ -582,7 +600,7 @@ export default async function GuidePage({
           target={{ kind: "intro", field: "text" }}
           value={content.intro.text}
           placeholder={regenerating ? TEXT_PLACEHOLDER : "Klicken, um eure Einleitung zu schreiben …"}
-          className="text-lg leading-relaxed"
+          className="measure text-lg leading-relaxed"
         />
       </section>
 
@@ -743,7 +761,7 @@ export default async function GuidePage({
                   editable={isOwner}
                   target={{ kind: "day", day: d.day, field: "text" }}
                   value={d.text}
-                  className="mt-2 leading-relaxed"
+                  className="measure mt-2 leading-relaxed"
                 />
               </article>
             ))}
