@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { editorialOnlyFilter } from "../src/lib/place-scope";
 import { PrismaClient } from "@prisma/client";
 import { resolvePlaceNames } from "../src/lib/knowledge";
 
@@ -22,8 +23,10 @@ async function main() {
   let updated = 0;
 
   for (const region of regions) {
+    // Nur redaktioneller Bestand – Wissens-Notizen gelten regionsweit und
+    // dürfen nicht auf private Nutzer-Ergänzungen zeigen (lib/place-scope.ts).
     const knownPlaces = await prisma.place.findMany({
-      where: { regionId: region.id },
+      where: { regionId: region.id, ...editorialOnlyFilter },
       select: { id: true, name: true, locality: true },
     });
 

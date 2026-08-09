@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { editorialOnlyFilter } from "./place-scope";
 import {
   analyzePdf,
   analyzeText,
@@ -139,8 +140,12 @@ export async function processKnowledgeDocument(documentId: string): Promise<Proc
     throw new Error("Dokument ist nicht freigegeben (Moderation ausstehend oder abgelehnt)");
   }
 
+  // NUR der redaktionelle Bestand. Wissens-Notizen sind regionsweit und
+  // fließen in JEDEN Guide – würden hier auch Nutzer-Ergänzungen aufgelöst,
+  // verwiese eine Notiz auf den privaten Tipp einer fremden Kundin
+  // (siehe lib/place-scope.ts).
   const knownPlaces: KnownPlace[] = await prisma.place.findMany({
-    where: { regionId: doc.regionId },
+    where: { regionId: doc.regionId, ...editorialOnlyFilter },
     select: { id: true, name: true, locality: true },
     orderBy: { name: "asc" },
   });
