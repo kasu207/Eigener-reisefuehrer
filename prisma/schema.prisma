@@ -2,12 +2,20 @@ generator client {
   provider = "prisma-client-js"
   // "native" für lokale Entwicklung, Debian-Target für das Docker-Image
   // (node:22-bookworm-slim => OpenSSL 3)
-  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+  // Für pg_trgm/unaccent (Volltext- & Ähnlichkeitssuche in der Wissensdatenbank,
+  // beides Standard-Postgres-Contrib-Module, kein externer Dienst)
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // pg_trgm: Ähnlichkeitssuche (Dedup, Namens-Fuzzy-Matching).
+  // unaccent: Akzente ignorieren (Café == Cafe) für Volltext- & Ähnlichkeitssuche.
+  // Beide sind Teil von "postgresql-contrib" und stecken in jedem Standard-
+  // Postgres-Image (kein zusätzlicher Dienst, keine externe API).
+  extensions = [pgTrgm(map: "pg_trgm"), unaccent]
 }
 
 enum PlaceType {
@@ -114,7 +122,10 @@ model KnowledgeDocument {
 }
 
 /// Eine aufbereitete Erkenntnis aus einer Wissensquelle: eigene Formulierung,
-/// getaggt mit Interessen (Fragebogen-Matching) und ggf. Ortsnamen.
+/// getaggt mit Interessen (Fragebogen-Matching) und an konkrete Orte gebunden.
+/// Retrieval läuft über Postgres-Bordmittel: Volltextsuche (to_tsvector,
+/// zur Laufzeit berechnet) + Trigram-Ähnlichkeit (pg_trgm) für Dedup –
+/// kein externer Dienst, keine Embeddings.
 model KnowledgeChunk {
   id         String            @id @default(cuid())
   documentId String            @map("document_id")
@@ -122,6 +133,10 @@ model KnowledgeChunk {
   title      String
   content    String
   interests  String[] // Keys aus dem Fragebogen (wandern, kulinarik, ...)
+  /// Aufgelöste Verweise auf `places.id` (exakte Ortszuordnung).
+  placeIds   String[]          @map("place_ids")
+  /// NICHT auflösbare Ortsnamen – Kandidaten für neue Orts-Einträge
+  /// (Altbestand vor der Umstellung enthält hier alle genannten Namen).
   placeNames String[]          @map("place_names")
   createdAt  DateTime          @default(now()) @map("created_at")
 

@@ -9,7 +9,8 @@ DB-Einträge, kein Code.
 ## Stack
 
 - **Next.js** (App Router, TypeScript) – Fragebogen, Guide-Ansicht und Admin in einer App
-- **Postgres + Prisma** – Datenmodell gemäß Anforderungsdokument (Kap. 6)
+- **Postgres + Prisma** – Datenmodell gemäß Anforderungsdokument (Kap. 6);
+  **pgvector** für die semantische Suche in der Wissensdatenbank
 - **Claude API** (`@anthropic-ai/sdk`) – kapitelweise Textgenerierung mit Zod-validiertem JSON-Output
 - **DB-basierte Job-Queue** – Worker-Prozess generiert Guides im Hintergrund
 - **Leaflet + OpenStreetMap** – Übersichtskarte und Koordinaten-Picker im Admin
@@ -142,6 +143,29 @@ zwei Stufen, bevor sie in Guides landet:
 Die KI legt aus freigegebenen Quellen paraphrasierte, nach Interessen
 getaggte Notizen an (nie wörtliche Übernahmen, Quellenangabe am Dokument).
 Passende Notizen fließen als Kontext in die Guide-Generierung ein.
+
+### Hybrid-Suche & Dedup (reine Postgres-Bordmittel, kein externer Dienst)
+
+Retrieval und Duplikat-Erkennung laufen komplett mit den Postgres-Extensions
+`pg_trgm` und `unaccent` – beide Teil von "postgresql-contrib" und in jedem
+Standard-Postgres-Image enthalten. Kein API-Key, kein zusätzlicher Dienst,
+keine Downloads zur Laufzeit:
+
+- **Matching auf den Fragebogen** ist ein Hybrid aus dem bisherigen
+  Tag-Matching (strukturiertes, redaktionelles Signal) und Postgres-
+  Volltextsuche (`websearch_to_tsquery`/`ts_rank_cd`, findet auch Begriffe,
+  die nicht als Tag hinterlegt sind – z. B. Ortsnamen aus dem Fragebogen).
+  Beide Rankings werden per Reciprocal Rank Fusion (RRF) zusammengeführt.
+- **Duplikate** (z. B. zehn Blogs über dieselbe Villa) werden beim Einlesen
+  per Trigram-Ähnlichkeit (`similarity()`) erkannt und übersprungen.
+- **Ortszuordnung** ist exakt: Die Analyse bekommt die bekannten Orte der
+  Region mit IDs und liefert `placeIds`; nicht auflösbare Ortsnamen werden
+  im Admin als **Orts-Kandidaten** für neue Einträge ausgewiesen.
+
+Setup: keines – `npm run db:push` legt die Extensions automatisch an. Für
+Bestandsnotizen aus der Zeit vor der Umstellung einmalig
+`npm run db:backfill-place-ids` ausführen (löst `placeNames` zu `placeIds`
+auf).
 
 ## DSGVO
 

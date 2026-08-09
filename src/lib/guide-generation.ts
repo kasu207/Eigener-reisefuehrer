@@ -40,7 +40,8 @@ import {
   describeAdjustments,
 } from "./adjustments";
 import {
-  matchChunksToQuestionnaire,
+  selectChunksForQuestionnaire,
+  chunksForPlace,
   chunksForPlaceName,
   formatChunkForPrompt,
   type ChunkWithSource,
@@ -87,10 +88,19 @@ function hikeFacts(h: Hike): string {
   return parts.filter(Boolean).join("; ");
 }
 
-function sourceExcerpts(sources: Source[], libraryChunks: ChunkWithSource[], name: string): string[] {
+function sourceExcerpts(
+  sources: Source[],
+  libraryChunks: ChunkWithSource[],
+  name: string,
+  placeId?: string
+): string[] {
   const own = sources.filter((s) => s.excerpt).map((s) => s.excerpt);
-  const library = chunksForPlaceName(libraryChunks, name).map(formatChunkForPrompt);
-  return [...own, ...library];
+  // Orte: exakte Zuordnung über placeIds (+ Namens-Fallback für Altbestand);
+  // Wanderungen haben keine placeIds und laufen über den Namen.
+  const matched = placeId
+    ? chunksForPlace(libraryChunks, placeId, name)
+    : chunksForPlaceName(libraryChunks, name);
+  return [...own, ...matched.map(formatChunkForPrompt)];
 }
 
 function toEntryContext(p: Place & { sources: Source[] }, chunks: ChunkWithSource[]): EntryContext {
@@ -98,7 +108,7 @@ function toEntryContext(p: Place & { sources: Source[] }, chunks: ChunkWithSourc
     id: p.id,
     name: cleanName(p.name),
     facts: placeFacts(p),
-    sourceExcerpts: sourceExcerpts(p.sources, chunks, p.name),
+    sourceExcerpts: sourceExcerpts(p.sources, chunks, p.name, p.id),
   };
 }
 
@@ -127,7 +137,8 @@ async function prepareGuideData(
     where: { document: { regionId: region.id, status: "analyzed" } },
     include: { document: { select: { title: true, kind: true, url: true } } },
   });
-  const matchedChunks = matchChunksToQuestionnaire(allChunks, q);
+  // Hybrid-Auswahl: Tag-Matching + Postgres-Volltextsuche, per RRF fusioniert
+  const matchedChunks = await selectChunksForQuestionnaire(region.id, allChunks, q);
 
   // Nur verifizierte Einträge gelangen in Guides (Anforderung 4.5);
   // vom Nutzer entfernte Einträge werden nicht wieder aufgenommen

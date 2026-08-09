@@ -37,6 +37,7 @@ function makeChunk(overrides: Partial<ChunkWithSource> = {}): ChunkWithSource {
     title: "Notiz",
     content: "Inhalt",
     interests: [],
+    placeIds: [],
     placeNames: [],
     createdAt: new Date(),
     document: { title: "Testbuch", kind: "book", url: null },

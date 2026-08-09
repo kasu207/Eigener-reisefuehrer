@@ -165,7 +165,13 @@ jedem Guide der Region. Drei Formate:
   gehen. Reine Scan-PDFs ohne Textebene funktionieren nicht.
 - Die KI liest die Quelle ein und legt **paraphrasierte, getaggte Notizen** an
   (nie wörtliche Übernahme). Passende Notizen fließen automatisch als
-  Hintergrund in die Guide-Texte ein.
+  Hintergrund in die Guide-Texte ein – semantisch gematcht (Embeddings),
+  fast identische Notizen aus mehreren Quellen werden automatisch
+  übersprungen.
+- Notizen werden **konkreten Orts-Einträgen zugeordnet**. Nennt eine Quelle
+  einen Ort, den es noch nicht in der Datenbank gibt, erscheint er bei der
+  Notiz als **„Orts-Kandidat"** – ein Hinweis, dass sich ein neuer Eintrag
+  lohnen könnte.
 - **Community-Einreichungen** (von der öffentlichen Seite `/beitragen`)
   erscheinen oben in der **Moderations-Box** und müssen mit
   „Freigeben & analysieren" bestätigt werden. Die KI prüft zusätzlich

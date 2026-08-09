@@ -28,6 +28,9 @@ const chunkSchema = z.object({
       title: z.string(),
       content: z.string(),
       interests: z.array(z.enum(INTERESTS)),
+      /** IDs aus der mitgegebenen Liste bekannter Orte (exakte Zuordnung). */
+      placeIds: z.array(z.string()),
+      /** Ortsnamen, die NICHT in der Liste stehen (Kandidaten für neue Orte). */
       placeNames: z.array(z.string()),
     })
   ),
@@ -37,7 +40,27 @@ export interface AnalyzedChunk {
   title: string;
   content: string;
   interests: string[];
+  placeIds: string[];
   placeNames: string[];
+}
+
+/** Bekannter Ort der Region, den die KI per ID referenzieren kann. */
+export interface KnownPlace {
+  id: string;
+  name: string;
+  locality: string;
+}
+
+// Obergrenze für die Ortsliste im Prompt (hält den Kontext klein; bei mehr
+// Orten greift die code-seitige Namensauflösung in knowledge.ts).
+const MAX_KNOWN_PLACES_IN_PROMPT = 400;
+
+function knownPlacesBlock(knownPlaces: KnownPlace[]): string {
+  if (knownPlaces.length === 0) return "";
+  const lines = knownPlaces
+    .slice(0, MAX_KNOWN_PLACES_IN_PROMPT)
+    .map((p) => `- ${p.id} · ${p.name}${p.locality ? ` (${p.locality})` : ""}`);
+  return `\n\nBEKANNTE ORTE DER REGION (id · Name):\n${lines.join("\n")}`;
 }
 
 /** Gemeinsame Ablehnungs-Fehlerklasse (Sicherheitsprüfung). */
@@ -51,7 +74,7 @@ HARTE REGELN:
 - Formuliere ausschließlich EIGENE Zusammenfassungen. Übernimm NIE wörtliche Sätze oder Passagen aus der Quelle (Urheberrecht).
 - Jede Notiz: prägnanter Titel, 2-5 Sätze Inhalt in eigener Formulierung, sachlich.
 - Tagge jede Notiz mit passenden Interessen aus dieser Liste: ${INTERESTS.join(", ")}.
-- Nenne im Feld placeNames die konkreten Orte/Wanderungen, auf die sich die Notiz bezieht (leer lassen, wenn allgemein).
+- Ortszuordnung: Bezieht sich die Notiz auf einen Ort aus der Liste BEKANNTE ORTE, trage dessen id in placeIds ein (nur ids aus der Liste, nie erfinden). Orte, die NICHT in der Liste stehen, nenne stattdessen namentlich in placeNames – sie werden der Redaktion als Kandidaten für neue Einträge vorgeschlagen. Beides leer lassen, wenn die Notiz allgemein ist.
 - Keine erfundenen Fakten: Nur was in der Quelle steht. Preise/Öffnungszeiten mit Vorsicht ("laut Quelle, Stand unklar").
 - Maximal 25 Notizen, nur wirklich Nützliches (Geheimtipps, Einordnungen, praktische Hinweise, Hintergründe).
 
@@ -65,6 +88,7 @@ Begründe die Entscheidung knapp in safety.reason. Bei unbedenklichen Reise-Quel
 
 async function runAnalysis(
   regionName: string,
+  knownPlaces: KnownPlace[],
   content: Anthropic.Messages.ContentBlockParam[]
 ): Promise<{ chunks: AnalyzedChunk[]; inputTokens: number; outputTokens: number }> {
   const response = await aiClient.messages.parse({
@@ -78,7 +102,10 @@ async function runAnalysis(
       {
         role: "user",
         content: [
-          { type: "text", text: `Region: ${regionName}. Analysiere die folgende Quelle:` },
+          {
+            type: "text",
+            text: `Region: ${regionName}.${knownPlacesBlock(knownPlaces)}\n\nAnalysiere die folgende Quelle:`,
+          },
           ...content,
         ],
       },
@@ -91,8 +118,14 @@ async function runAnalysis(
   if (!response.parsed_output.safety.acceptable) {
     throw new UnsafeContentError(response.parsed_output.safety.reason);
   }
+  // Nur ids akzeptieren, die tatsächlich existieren (Schutz vor Halluzination)
+  const knownIds = new Set(knownPlaces.map((p) => p.id));
+  const chunks = response.parsed_output.chunks.map((c) => ({
+    ...c,
+    placeIds: [...new Set(c.placeIds.filter((id) => knownIds.has(id)))],
+  }));
   return {
-    chunks: response.parsed_output.chunks,
+    chunks,
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
   };
@@ -107,6 +140,7 @@ function mockAnalysis(sourceLabel: string) {
         content:
           "Dies ist eine Mock-Notiz ohne API-Kosten. Im Live-Modus extrahiert die KI hier paraphrasierte, getaggte Erkenntnisse aus der Quelle.",
         interests: ["kulinarik", "doerfer_maerkte"],
+        placeIds: [],
         placeNames: [],
       },
     ] as AnalyzedChunk[],
@@ -116,9 +150,9 @@ function mockAnalysis(sourceLabel: string) {
 }
 
 /** PDF (Buch/Reiseführer) analysieren – Claude liest das PDF direkt. */
-export async function analyzePdf(regionName: string, pdfData: Buffer) {
+export async function analyzePdf(regionName: string, knownPlaces: KnownPlace[], pdfData: Buffer) {
   if (isMock()) return mockAnalysis("PDF-Upload");
-  return runAnalysis(regionName, [
+  return runAnalysis(regionName, knownPlaces, [
     {
       type: "document",
       source: {
@@ -131,13 +165,15 @@ export async function analyzePdf(regionName: string, pdfData: Buffer) {
 }
 
 /** Reinen Text (txt/md-Upload) analysieren. */
-export async function analyzeText(regionName: string, text: string) {
+export async function analyzeText(regionName: string, knownPlaces: KnownPlace[], text: string) {
   if (isMock()) return mockAnalysis("Text-Upload");
-  return runAnalysis(regionName, [{ type: "text", text: text.slice(0, 400_000) }]);
+  return runAnalysis(regionName, knownPlaces, [
+    { type: "text", text: text.slice(0, 400_000) },
+  ]);
 }
 
 /** Blog/Artikel-URL: HTML holen, grob entschlacken, analysieren. */
-export async function analyzeUrl(regionName: string, url: string) {
+export async function analyzeUrl(regionName: string, knownPlaces: KnownPlace[], url: string) {
   if (isMock()) return mockAnalysis(url);
   // Realistischer Browser-Header: viele Blogs blocken sonst (403/500)
   const res = await fetch(url, {
@@ -154,7 +190,7 @@ export async function analyzeUrl(regionName: string, url: string) {
     .replace(/\s+/g, " ")
     .trim();
   if (text.length < 200) throw new Error("Seite enthält zu wenig Text");
-  return runAnalysis(regionName, [
+  return runAnalysis(regionName, knownPlaces, [
     { type: "text", text: `Quelle-URL: ${url}\n\n${text.slice(0, 300_000)}` },
   ]);
 }
