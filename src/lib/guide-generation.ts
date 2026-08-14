@@ -2,6 +2,7 @@ import { prisma } from "./db";
 import { questionnaireSchema, type Questionnaire } from "./questionnaire";
 import {
   selectContent,
+  applyPinnedEntries,
   haversineKm,
   placePassesHardFilters,
   restaurantPassesHardFilters,
@@ -31,6 +32,7 @@ import {
   type GuideContent,
 } from "./guide-content";
 import { cleanName } from "./names";
+import { parsePinnedIds } from "./generation-progress";
 import { generatePublicToken } from "./token";
 import { sendGuideReadyEmail } from "./email";
 import {
@@ -110,6 +112,9 @@ interface PreparedGuideData {
   entryNameById: Map<string, string>;
 }
 
+/** Obergrenze für Einträge im Unterkunfts-Kapitel (gepinnte zählen extra). */
+const ACCOMMODATION_CHAPTER_LIMIT = 15;
+
 /** Auswahl-Engine + Kapitel-Jobs aufbauen (gemeinsam für Skeleton und Worker). */
 async function prepareGuideData(
   request: GuideRequest,
@@ -171,6 +176,13 @@ async function prepareGuideData(
   }));
 
   const selection = selectContent(selectablePlaces, selectableHikes, q, mods, areaCounts);
+
+  // Ausdrücklich gewünschte Einträge ("❤️ In den Guide") werden gesetzt, statt
+  // sie über Zähler zu erhoffen – sonst tauchen frisch recherchierte Orte nie auf.
+  const pinnedIds = new Set(
+    parsePinnedIds(request.pinnedIds).filter((id) => !removedIds.has(id))
+  );
+  applyPinnedEntries(selection, pinnedIds, selectablePlaces, selectableHikes);
 
   const placeById = new Map(places.map((p) => [p.id, p]));
   const hikeById = new Map(hikes.map((h) => [h.id, h]));
@@ -277,6 +289,7 @@ async function prepareGuideData(
             (p) =>
               placeMatchesArea(p.type, p.priceLevel, area) &&
               !p.mustSee &&
+              !pinnedIds.has(p.id) && // selbst gewählte Einträge bleiben
               selectableById.has(p.id)
           )
           .map((p) => ({ p, score: scorePlace(selectableById.get(p.id)!, q, mods) }))
@@ -386,16 +399,21 @@ async function prepareGuideData(
   if (accLabel) {
     // ALLE geprüften Orte im Unterkunfts-Ort (nicht nur die von der Auswahl-
     // Engine getroffenen), damit frisch recherchierte Orte garantiert erscheinen.
-    const localPlaces = places
-      .filter((p) => {
-        if (!localityMatchesLabel(localityOf(p), accLabel)) return false;
-        const sp = selectableById.get(p.id);
-        if (!sp) return true; // z. B. Praktisches ohne Score trotzdem zeigen
-        return p.type === "restaurant" || p.type === "bar"
-          ? restaurantPassesHardFilters(sp, q)
-          : placePassesHardFilters(sp, q);
-      })
-      .slice(0, 15);
+    const localCandidates = places.filter((p) => {
+      if (!localityMatchesLabel(localityOf(p), accLabel)) return false;
+      if (pinnedIds.has(p.id)) return true; // selbst gewählt: immer zeigen
+      const sp = selectableById.get(p.id);
+      if (!sp) return true; // z. B. Praktisches ohne Score trotzdem zeigen
+      return p.type === "restaurant" || p.type === "bar"
+        ? restaurantPassesHardFilters(sp, q)
+        : placePassesHardFilters(sp, q);
+    });
+    // Gepinnte zuerst und außerhalb der Obergrenze: Sonst schneidet der Deckel
+    // ausgerechnet den zuletzt hinzugefügten Ort ab (er steht ganz hinten).
+    const localPlaces = [
+      ...localCandidates.filter((p) => pinnedIds.has(p.id)),
+      ...localCandidates.filter((p) => !pinnedIds.has(p.id)).slice(0, ACCOMMODATION_CHAPTER_LIMIT),
+    ];
     for (const p of localPlaces) alreadyShown.add(p.id);
     const nearby =
       q.accommodation.lat != null && q.accommodation.lng != null
@@ -585,8 +603,25 @@ export async function generateGuideForRequest(requestId: string): Promise<string
     });
   };
 
+  // Fortschritt + Lebenszeichen: `total` sind die Kapitel plus ein Schritt für
+  // Einleitung/Tagesvorschläge. Nach jedem Kapitel geschrieben, damit Guide-
+  // Seite und Admin sehen, wie weit die KI ist und dass noch jemand arbeitet.
+  const totalSteps = data.jobs.length + 1;
+  const reportProgress = async (done: number, label: string) => {
+    await prisma.guideRequest.update({
+      where: { id: requestId },
+      data: {
+        progressDone: done,
+        progressTotal: totalSteps,
+        progressLabel: label.slice(0, 200),
+        heartbeatAt: new Date(),
+      },
+    });
+  };
+  await reportProgress(0, data.jobs[0]?.workingTitle ?? "Einleitung");
+
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  for (const job of data.jobs) {
+  for (const [index, job] of data.jobs.entries()) {
     const old = oldChapterByKey.get(job.key);
     const newEntries = job.entries.filter((e) => !oldEntry(e.id)?.personalText);
 
@@ -612,6 +647,10 @@ export async function generateGuideForRequest(requestId: string): Promise<string
       }),
     });
     await saveProgress();
+    await reportProgress(
+      index + 1,
+      data.jobs[index + 1]?.workingTitle ?? "Einleitung & Tagesvorschläge"
+    );
   }
 
   // Einleitung & Tagesvorschläge nur erzeugen, wenn noch nicht vorhanden
@@ -661,6 +700,7 @@ export async function generateGuideForRequest(requestId: string): Promise<string
       generatedAt: new Date(),
     },
   });
+  await reportProgress(totalSteps, "");
 
   // E-Mail nur senden, wenn die Nutzer:in nach der Erstellung eine Adresse
   // hinterlegt hat. Frisch nachladen, da sie evtl. WÄHREND der Generierung

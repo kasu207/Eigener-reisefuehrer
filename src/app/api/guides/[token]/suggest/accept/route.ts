@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
-import { AREA_KEYS, areaDefaults, parseLocalityCounts, resolveCanonicalLocality } from "@/lib/areas";
+import { AREA_KEYS, areaDefaults, resolveCanonicalLocality } from "@/lib/areas";
+import { parsePinnedIds } from "@/lib/generation-progress";
 import { questionnaireSchema } from "@/lib/questionnaire";
 import { geocodePlace } from "@/lib/geocode";
 import type { PlaceType } from "@prisma/client";
@@ -125,14 +126,17 @@ export async function POST(
     });
   }
 
-  // Pro-Ort-Zähler erhöhen, damit der neue Ort sicher aufgenommen wird
-  const localityCounts = parseLocalityCounts(guide.guideRequest.localityCounts);
-  const current = localityCounts[localityKey] ?? {};
-  localityCounts[localityKey] = { ...current, [d.area]: (current[d.area] ?? 0) + 1 };
+  // Den neuen Ort GESETZT aufnehmen, nicht nur den Pro-Ort-Zähler erhöhen:
+  // Ein Zähler "+1" wählt den bestbewerteten Kandidaten des Bereichs – das ist
+  // fast nie der eben angelegte Ort (Standard-Score, keine Tags), und an den
+  // harten Filtern (Ernährung, Erreichbarkeit) scheitert er ohnehin. Über
+  // `pinnedIds` erscheint genau dieser Ort im nächsten Lauf garantiert.
+  const pinnedIds = parsePinnedIds(guide.guideRequest.pinnedIds);
+  if (!pinnedIds.includes(place.id)) pinnedIds.push(place.id);
 
   await prisma.guideRequest.update({
     where: { id: guide.guideRequestId },
-    data: { localityCounts, status: "pending", error: null },
+    data: { pinnedIds, status: "pending", error: null },
   });
 
   return NextResponse.json({ ok: true, name: place.name });

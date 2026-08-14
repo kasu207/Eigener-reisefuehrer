@@ -56,6 +56,13 @@ Admin-Interface: `http://localhost:3000/admin` (Basic Auth, `ADMIN_USER`/`ADMIN_
      werden zur Anzeigezeit direkt aus der DB gerendert – die KI liefert nur
      redaktionelle Texte. Zusätzlich prüft ein automatischer Check, dass jeder
      generierte Eintrag auf die gespeicherte Auswahl zurückführbar ist.
+   - **Fortschritt**: Der Worker schreibt nach jedem Kapitel `progress_done`/
+     `progress_total` und ein Lebenszeichen (`heartbeat_at`) an den Request.
+     Die Guide-Seite zeigt daraus einen Balken („Kapitel 3 von 9 · Torno"),
+     das Admin-Dashboard dieselbe Info plus Alter des Lebenszeichens. Bleibt
+     das Lebenszeichen länger als `GENERATION_STALE_MINUTES` aus (abgestürzter
+     Worker), setzt der nächste Worker-Durchlauf den Auftrag auf `failed` –
+     statt ihn für immer auf „wird generiert" stehen zu lassen.
 3. E-Mail mit nicht erratbarem Link (`/guide/<192-Bit-Token>`), kein Login.
 4. PDF-Download unter `/guide/<token>/pdf` (A5, Print-CSS, Seitenzahlen,
    Inhaltsverzeichnis). Die Templates sind so aufgebaut, dass in Phase 2 ein

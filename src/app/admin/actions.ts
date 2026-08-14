@@ -645,7 +645,16 @@ export async function deleteMapSpot(fd: FormData) {
 export async function requeueGuideRequest(fd: FormData) {
   await prisma.guideRequest.update({
     where: { id: str(fd, "id") },
-    data: { status: "pending", error: null },
+    // Fortschritt zurücksetzen, damit die Anzeige nicht den Stand des
+    // abgebrochenen Laufs weiterzeigt
+    data: {
+      status: "pending",
+      error: null,
+      progressDone: 0,
+      progressTotal: 0,
+      progressLabel: "",
+      heartbeatAt: null,
+    },
   });
   revalidatePath("/admin");
 }

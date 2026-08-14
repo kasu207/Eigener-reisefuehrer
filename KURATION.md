@@ -182,10 +182,20 @@ jedem Guide der Region. Drei Formate:
 ## 8. Ergebnis prüfen & steuern
 
 - **Guide-Requests** (Startseite des Admin): Liste aller erzeugten Guides mit
-  Status, Vorschau-Link und „Neu generieren".
+  Status, **Fortschritt** (Kapitel x von y plus Alter des letzten
+  Lebenszeichens), Vorschau-Link und „Neu generieren". Die Seite aktualisiert
+  sich alle 5 Sekunden selbst; ein hängengebliebener Auftrag wird rot als
+  „hängt – kein Lebenszeichen" markiert und nach `GENERATION_STALE_MINUTES`
+  automatisch auf „fehlgeschlagen" gesetzt.
 - Im Guide selbst (als Besitzer) kannst du zusätzlich **jeden Text inline
   bearbeiten**, Einträge **entfernen** und den Umfang **je Bereich** über
   „Feintuning" (mehr/weniger) anpassen – z. B. mehr günstige Cafés.
+- Ein per „🔎 Neuen Ort recherchieren" gefundener und mit **„❤️ In den Guide"**
+  übernommener Ort wird **gesetzt** (gepinnt): Er erscheint im nächsten
+  Generierungslauf garantiert – auch wenn ihm noch Tags, Ernährungs- oder
+  Erreichbarkeitsangaben fehlen, die ihn sonst durch die harten Filter fallen
+  ließen. Ergänze diese Angaben anschließend im Admin; entfernst du den
+  Eintrag im Guide, bleibt er entfernt.
 
 ---
 
