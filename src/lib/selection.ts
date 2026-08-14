@@ -390,3 +390,40 @@ export function selectContent(
     },
   };
 }
+
+/**
+ * Gesetzte Einträge ("❤️ In den Guide") nachträglich in eine Auswahl
+ * aufnehmen – bewusst **an Zielmengen, Scoring und harten Filtern vorbei**.
+ *
+ * Ein gerade recherchierter Ort hat noch keine Tags, Ernährungs- oder
+ * Erreichbarkeitsangaben. Über die normale Auswahl käme er deshalb nie in den
+ * Guide: Entweder fällt er durch die harten Filter (z. B. `dietaryOptions: []`
+ * bei gewählter vegetarischer Ernährung), oder ein besser bewerteter
+ * Bestands-Ort belegt den Platz. Der Nutzer hat ihn aber selbst ausgewählt,
+ * also erscheint er – die fehlenden Angaben pflegt die Redaktion nach.
+ *
+ * Verändert `selection` an Ort und Stelle und gibt sie zurück.
+ */
+export function applyPinnedEntries(
+  selection: Selection,
+  pinnedIds: Set<string>,
+  places: Pick<SelectablePlace, "id" | "type">[],
+  hikes: Pick<SelectableHike, "id">[]
+): Selection {
+  if (pinnedIds.size === 0) return selection;
+
+  const push = (list: string[], id: string) => {
+    if (!list.includes(id)) list.push(id);
+  };
+
+  for (const p of places) {
+    if (!pinnedIds.has(p.id)) continue;
+    if (p.type === "practical") push(selection.practicalIds, p.id);
+    else if (p.type === "restaurant" || p.type === "bar") push(selection.restaurantIds, p.id);
+    else push(selection.placeIds, p.id);
+  }
+  for (const h of hikes) {
+    if (pinnedIds.has(h.id)) push(selection.hikeIds, h.id);
+  }
+  return selection;
+}

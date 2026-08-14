@@ -28,12 +28,15 @@ const OVERPASS_FILTERS: Partial<Record<AreaKey, [string, string | null][]>> = {
     ["historic", null],
     ["natural", "beach"],
   ],
+  // Gehoben/Mittelklasse: nur echte Restaurants – Cafés und Imbisse gehören
+  // dort nicht hin, egal wie nah sie liegen.
   foodFancy: [["amenity", "restaurant"]],
   foodMid: [["amenity", "restaurant"]],
   foodBudget: [
     ["amenity", "cafe"],
     ["amenity", "restaurant"],
     ["amenity", "fast_food"],
+    ["amenity", "ice_cream"],
   ],
   bars: [
     ["amenity", "bar"],
@@ -45,6 +48,103 @@ const OVERPASS_FILTERS: Partial<Record<AreaKey, [string, string | null][]>> = {
     ["tourism", "guest_house"],
   ],
 };
+
+export type PriceTier = "fancy" | "mid" | "budget";
+
+/** Welche Preisklasse ein Gastro-Bereich meint. */
+export const FOOD_AREA_TIERS: Partial<Record<AreaKey, PriceTier>> = {
+  foodFancy: "fancy",
+  foodMid: "mid",
+  foodBudget: "budget",
+};
+
+/**
+ * Darf ein Ort OHNE erkennbare Preisklasse in diesem Bereich vorgeschlagen
+ * werden? Ein schlicht getaggtes `amenity=restaurant` ist als Mittelklasse
+ * oder günstig plausibel – als "gehoben" ist es eine reine Behauptung. Für
+ * `fancy` greift deshalb die KI-Recherche, die Preisniveaus belegen kann.
+ */
+const TIER_ACCEPTS_UNKNOWN: Record<PriceTier, boolean> = {
+  fancy: false,
+  mid: true,
+  budget: true,
+};
+
+const BUDGET_CUISINES = new Set([
+  "pizza",
+  "burger",
+  "kebab",
+  "sandwich",
+  "fish_and_chips",
+  "ice_cream",
+  "coffee_shop",
+  "bakery",
+  "friture",
+  "donut",
+]);
+
+const FANCY_CUISINES = new Set(["fine_dining", "gourmet"]);
+
+function cuisinesOf(tags: Record<string, string>): string[] {
+  return (tags.cuisine ?? "")
+    .toLowerCase()
+    .split(";")
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Preisklasse aus OSM-Tags ableiten.
+ *
+ * OSM hat kein verlässliches Preisfeld – `price_range` ist selten gesetzt –,
+ * aber die Betriebsart und einzelne Tags trennen grob genug. Wichtig:
+ * `null` heißt "steht nicht in den Daten", NICHT "Mittelklasse". Sonst würde
+ * jedes namenlos getaggte Restaurant in jeder Preisklasse auftauchen – und
+ * genau das ließ günstig/mittel/gehoben immer dasselbe anzeigen.
+ */
+export function priceTierFromTags(tags: Record<string, string>): PriceTier | null {
+  const amenity = tags.amenity ?? "";
+  // Betriebsart ist das stärkste Signal
+  if (amenity === "fast_food" || amenity === "ice_cream") return "budget";
+  if (tags.takeaway === "only" || tags.self_service === "yes") return "budget";
+
+  // Explizite Preisangabe, wenn ausnahmsweise vorhanden ($$ / €€ / "moderate")
+  const range = (tags.price_range ?? "").toLowerCase();
+  const symbols = range.match(/[$€£]/g);
+  if (symbols) {
+    if (symbols.length >= 3) return "fancy";
+    return symbols.length === 2 ? "mid" : "budget";
+  }
+  if (range) {
+    if (/expensive|teuer|hoch/.test(range)) return "fancy";
+    if (/moderate|mittel/.test(range)) return "mid";
+    if (/cheap|budget|g(ü|ue)nstig/.test(range)) return "budget";
+  }
+
+  const cuisines = cuisinesOf(tags);
+  if (tags.michelin_star || tags["michelin:stars"]) return "fancy";
+  if (cuisines.some((c) => FANCY_CUISINES.has(c))) return "fancy";
+  if (tags.reservation === "required") return "fancy";
+
+  if (amenity === "cafe") return "budget";
+  if (cuisines.some((c) => BUDGET_CUISINES.has(c))) return "budget";
+
+  return null; // z. B. schlichtes amenity=restaurant ohne weitere Hinweise
+}
+
+/**
+ * Preisniveau 1–4 aus Tags – nur wenn die Daten es hergeben, sonst null.
+ * So bekommt ein übernommener Ort einen belegten Wert statt der pauschalen
+ * Bereichs-Vorgabe.
+ */
+export function priceLevelFromTags(tags: Record<string, string>): number | null {
+  const tier = priceTierFromTags(tags);
+  if (!tier) return null;
+  if (tier === "fancy") return 4;
+  if (tier === "mid") return 3;
+  const amenity = tags.amenity ?? "";
+  return amenity === "fast_food" || amenity === "ice_cream" ? 1 : 2;
+}
 
 interface OverpassElement {
   type: "node" | "way" | "relation";
@@ -78,6 +178,7 @@ export function addressFrom(tags: Record<string, string>): string | null {
 export function noteFrom(tags: Record<string, string>): string {
   const parts: string[] = [];
   if (tags.cuisine) parts.push(`Küche: ${tags.cuisine.replace(/_/g, " ")}`);
+  if (tags.price_range) parts.push(`Preisangabe (laut OSM): ${tags.price_range}`);
   if (tags.tourism === "viewpoint") parts.push("Aussichtspunkt");
   if (tags.tourism === "attraction") parts.push("Sehenswürdigkeit");
   if (tags.tourism === "museum") parts.push("Museum");
@@ -133,7 +234,8 @@ export async function searchOsmPlaceCandidates(input: OsmSearchInput): Promise<P
 
   const exclude = new Set(input.excludeNames.map((n) => n.toLowerCase()));
   const seen = new Set<string>();
-  const withDistance: { c: PlaceCandidate; d: number }[] = [];
+  const wantedTier = FOOD_AREA_TIERS[input.area] ?? null;
+  const ranked: { c: PlaceCandidate; tierRank: number; d: number }[] = [];
 
   for (const el of elements) {
     const tags = el.tags ?? {};
@@ -143,6 +245,16 @@ export async function searchOsmPlaceCandidates(input: OsmSearchInput): Promise<P
     if (exclude.has(key) || seen.has(key)) continue;
     seen.add(key);
 
+    // Preisklasse ernst nehmen: fremde Klassen raus, unbekannte nur dort, wo
+    // sie plausibel sind – und immer hinter den belegten Treffern.
+    let tierRank = 0;
+    if (wantedTier) {
+      const tier = priceTierFromTags(tags);
+      if (tier && tier !== wantedTier) continue;
+      if (!tier && !TIER_ACCEPTS_UNKNOWN[wantedTier]) continue;
+      tierRank = tier === wantedTier ? 0 : 1;
+    }
+
     const lat = el.lat ?? el.center?.lat;
     const lng = el.lon ?? el.center?.lon;
     if (lat == null || lng == null) continue;
@@ -151,11 +263,11 @@ export async function searchOsmPlaceCandidates(input: OsmSearchInput): Promise<P
     const d = dLat * dLat + dLng * dLng; // grobe Distanz reicht zum Sortieren
 
     const address = addressFrom(tags);
-    withDistance.push({
+    ranked.push({
       c: {
         name,
         note: noteFrom(tags),
-        priceLevel: null,
+        priceLevel: priceLevelFromTags(tags),
         address,
         sourceUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
         sourceTitle: "OpenStreetMap-Mitwirkende",
@@ -167,12 +279,13 @@ export async function searchOsmPlaceCandidates(input: OsmSearchInput): Promise<P
         lat,
         lng,
       },
+      tierRank,
       d,
     });
   }
 
-  return withDistance
-    .sort((a, b) => a.d - b.d)
+  return ranked
+    .sort((a, b) => a.tierRank - b.tierRank || a.d - b.d)
     .slice(0, MAX_RESULTS)
     .map((x) => x.c);
 }

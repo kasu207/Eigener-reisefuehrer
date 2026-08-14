@@ -6,7 +6,6 @@ import { placeScopeFilter } from "@/lib/place-scope";
 import {
   AREA_KEYS,
   areaDefaults,
-  placeMatchesArea,
   REGION_WIDE_KEY,
   localityMatchesLabel,
 } from "@/lib/areas";
@@ -14,7 +13,7 @@ import { questionnaireSchema, INTEREST_LABELS, type Questionnaire } from "@/lib/
 import { guideContentSchema } from "@/lib/guide-content";
 import { researchPlaceCandidates } from "@/lib/ai/research-place";
 import { describeAiError } from "@/lib/ai/common";
-import { searchOsmPlaceCandidates } from "@/lib/osm-places";
+import { searchOsmPlaceCandidates, FOOD_AREA_TIERS } from "@/lib/osm-places";
 import { geocodePlace } from "@/lib/geocode";
 import {
   researchCacheKey,
@@ -29,6 +28,12 @@ export const maxDuration = 120;
 const bodySchema = z.object({
   area: z.enum(AREA_KEYS),
   locality: z.string().min(1).max(200),
+  /**
+   * Bereits in dieser Sitzung gezeigte (und verworfene) Vorschläge. Ohne das
+   * liefert "🔄 Anderer" nach geleertem Vorrat wieder den nächstgelegenen
+   * Treffer – also denselben wie beim ersten Klick.
+   */
+  exclude: z.array(z.string().min(1).max(200)).max(30).default([]),
 });
 
 /**
@@ -96,12 +101,16 @@ export async function POST(
     return NextResponse.json({ error: "Für diesen Bereich nicht verfügbar." }, { status: 400 });
   }
   const { area, locality } = parsed.data;
+  const tier = FOOD_AREA_TIERS[area];
 
   const q = questionnaireSchema.parse(guide.guideRequest.questionnaire);
   const region = await prisma.region.findUnique({ where: { slug: q.regionSlug } });
   if (!region) return NextResponse.json({ error: "Region fehlt." }, { status: 400 });
 
-  // Namen, die im Ort+Bereich bereits im Guide (oder im Bestand) sind – nicht doppelt vorschlagen
+  // Namen, die es im Ort schon gibt – BEREICHSÜBERGREIFEND ausschließen.
+  // Früher wurde nur der angefragte Bereich geprüft: Ein als "mittel"
+  // übernommenes Restaurant passte nicht auf "gehoben" und wurde dort prompt
+  // erneut vorgeschlagen – für die Nutzer:in "immer wieder dasselbe Lokal".
   const exclude = new Set<string>();
   const content = guideContentSchema.safeParse(guide.content);
   const shownIds = content.success
@@ -113,11 +122,9 @@ export async function POST(
   });
   for (const p of verified) {
     const key = p.locality?.trim() || REGION_WIDE_KEY;
-    if (localityMatchesLabel(key, locality) && placeMatchesArea(p.type, p.priceLevel, area)) {
-      exclude.add(p.name);
-    }
+    if (localityMatchesLabel(key, locality)) exclude.add(p.name);
   }
-  // zusätzlich die im Guide gezeigten Namen dieses Bereichs
+  // zusätzlich die im Guide gezeigten Namen dieses Ortes
   const byId = new Map(verified.map((p) => [p.id, p]));
   for (const id of shownIds) {
     const p = byId.get(id);
@@ -125,6 +132,8 @@ export async function POST(
       exclude.add(p.name);
     }
   }
+  // und die in dieser Sitzung schon gezeigten Vorschläge ("🔄 Anderer")
+  for (const name of parsed.data.exclude) exclude.add(name.trim());
 
   const def = areaDefaults(area);
   const excludeNames = [...exclude];
@@ -138,8 +147,9 @@ export async function POST(
   }
 
   // 2) Cache leer -> zuerst KOSTENLOS über OpenStreetMap suchen (kein KI-
-  //    Aufruf). Nur wenn OSM nichts Passendes findet, greift die
-  //    kostenpflichtige KI-Websuche als Fallback.
+  //    Aufruf). Bei Gastro filtert die OSM-Suche jetzt nach Preisklasse; findet
+  //    sie dort nichts Belegbares (typisch für "gehoben" – OSM kennt kaum
+  //    Preise), greift die kostenpflichtige KI-Websuche als Fallback.
   const center = await resolveLocalityCenter(q, region, locality, verified);
   if (center) {
     try {
@@ -160,8 +170,9 @@ export async function POST(
     }
   }
 
-  // 3) OSM leer/fehlgeschlagen -> EINE KI-Recherche, die gleich mehrere
-  //    Kandidaten holt; einen zurückgeben, den Rest für spätere Klicks cachen.
+  // 3) OSM leer/fehlgeschlagen/ohne Treffer der Preisklasse -> EINE
+  //    KI-Recherche, die gleich mehrere Kandidaten holt; einen zurückgeben,
+  //    den Rest für spätere Klicks cachen.
   try {
     const candidates = await researchPlaceCandidates({
       regionName: region.name,
@@ -171,10 +182,15 @@ export async function POST(
       priceLevelMax: q.priceLevel,
       diets: q.diets,
       excludeNames,
+      priceTier: tier,
     });
     if (candidates.length === 0) {
       return NextResponse.json(
-        { error: "Kein passender neuer Ort gefunden. Bitte erneut versuchen." },
+        {
+          error: tier
+            ? `Kein weiterer Ort dieser Preisklasse in „${locality}" gefunden. Versuche eine andere Preisklasse oder lege den Ort im Admin an.`
+            : "Kein passender neuer Ort gefunden. Bitte erneut versuchen.",
+        },
         { status: 404 }
       );
     }

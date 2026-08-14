@@ -185,13 +185,72 @@ jedem Guide der Region. Drei Formate:
 
 ---
 
+## 7b. Orte in Stapeln pflegen (`/admin/places`)
+
+Die Orte-Liste ist eine Arbeitsliste, keine reine Auflistung:
+
+- **Filtern** nach Suchbegriff, Region, Typ, Status und **Lücke**; die Filter
+  stehen in der URL, eine Arbeitsansicht („alle Entwürfe in Torno ohne Bild")
+  lässt sich also als Lesezeichen behalten.
+- **Spalte „Fehlt noch"** zeigt je Eintrag, was zur Guide-Tauglichkeit fehlt.
+  Rot markierte Lücken wirken sich unmittelbar aus:
+  - *Koordinaten* – der Ort klebt auf der Regionsmitte, der Kartenpin steht
+    falsch und die Umkreis-Suche findet ihn nicht.
+  - *Ernährung* – ein Restaurant ohne Ernährungsangaben fällt bei jedem Gast
+    mit Ernährungsweise durch den harten Filter und erscheint **nie**.
+  - *Ort* – ohne Stadt landet der Eintrag im Sammelkapitel statt im Ort-Kapitel.
+- **Sammelaktionen**: mehrere Zeilen anhaken und auf einmal geprüft setzen, auf
+  Entwurf zurücknehmen, Must-See setzen, den Ort nachtragen oder löschen.
+- **Sortierung „unvollständig zuerst"** stellt die Einträge mit dem größten
+  Handlungsbedarf nach oben.
+
+### Dubletten (`/admin/places/duplicates`)
+
+Findet Doppel-Einträge über Namensähnlichkeit **und** Entfernung: „Ristorante
+Vapore" und „Vapore" im selben Ort sind dasselbe, zwei „Bar Centrale" in
+Nachbardörfern nicht. Beim Zusammenführen wählst du den Eintrag, der bleibt:
+
+- Bilder und Quellen der Dubletten wandern hinüber,
+- leere Felder werden aus den Dubletten aufgefüllt (gepflegte Werte des
+  behaltenen Eintrags bleiben unangetastet), Tags und Ernährungsangaben werden
+  vereinigt, Redaktionsnotizen angehängt,
+- **bestehende Guides zeigen danach auf den behaltenen Ort** – der Eintrag
+  verschwindet dort also nicht, samt bereits geschriebenem Text.
+
+Fehltreffer lassen sich als „kein Duplikat" markieren; die Markierung steht
+unten auf der Seite und ist zurücknehmbar.
+
+### Bilder nachtragen (`/admin/places/images`)
+
+Alle Orte ohne Bild untereinander, jeder mit vorbelegter Bildersuche (Wikimedia
+Commons, Openverse, optional Pexels/Unsplash/Europeana). Man bleibt auf einer
+Seite und arbeitet die Liste ab, statt pro Ort fünf Wege zu klicken.
+
 ## 8. Ergebnis prüfen & steuern
 
 - **Guide-Requests** (Startseite des Admin): Liste aller erzeugten Guides mit
-  Status, Vorschau-Link und „Neu generieren".
+  Status, **Fortschritt** (Kapitel x von y plus Alter des letzten
+  Lebenszeichens), Vorschau-Link und „Neu generieren". Die Seite aktualisiert
+  sich alle 5 Sekunden selbst; ein hängengebliebener Auftrag wird rot als
+  „hängt – kein Lebenszeichen" markiert und nach `GENERATION_STALE_MINUTES`
+  automatisch auf „fehlgeschlagen" gesetzt.
 - Im Guide selbst (als Besitzer) kannst du zusätzlich **jeden Text inline
   bearbeiten**, Einträge **entfernen** und den Umfang **je Bereich** über
   „Feintuning" (mehr/weniger) anpassen – z. B. mehr günstige Cafés.
+- **Essen nach Preisklasse:** „+" bei günstig/mittel/gehoben sucht jetzt
+  wirklich getrennt. OpenStreetMap wird nach Preisklasse gefiltert (Betriebsart,
+  `price_range`, Michelin-Tag, Reservierungspflicht, Küche); Orte ohne
+  erkennbare Preisangabe gelten als günstig/mittel plausibel, für **gehoben**
+  aber nicht – dort übernimmt automatisch die KI-Websuche, die Preisniveaus
+  belegen kann. Ein Ort, den es im Guide-Ort schon gibt, wird in **keiner**
+  Preisklasse erneut vorgeschlagen, und „🔄 Anderer" merkt sich die bereits
+  gezeigten Vorschläge.
+- Ein per „🔎 Neuen Ort recherchieren" gefundener und mit **„❤️ In den Guide"**
+  übernommener Ort wird **gesetzt** (gepinnt): Er erscheint im nächsten
+  Generierungslauf garantiert – auch wenn ihm noch Tags, Ernährungs- oder
+  Erreichbarkeitsangaben fehlen, die ihn sonst durch die harten Filter fallen
+  ließen. Ergänze diese Angaben anschließend im Admin; entfernst du den
+  Eintrag im Guide, bleibt er entfernt.
 
 ---
 

@@ -289,6 +289,22 @@ model Image {
   @@map("images")
 }
 
+/// Von der Redaktion ausdrücklich als "kein Duplikat" markiertes Ortspaar.
+/// Ohne das würde die Dubletten-Ansicht dieselben Fehltreffer (z. B. zwei
+/// echte "Bar Centrale" in Nachbardörfern) bei jedem Aufruf erneut zeigen.
+/// Bewusst ohne Fremdschlüssel: Ein gelöschter Ort macht den Eintrag
+/// wirkungslos, nicht kaputt; die Ansicht ignoriert unbekannte IDs.
+model DuplicateDismissal {
+  id        String   @id @default(cuid())
+  /// Kleinere der beiden IDs zuerst – macht das Paar richtungsunabhängig.
+  aId       String   @map("a_id")
+  bId       String   @map("b_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([aId, bId])
+  @@map("duplicate_dismissals")
+}
+
 model Source {
   id         String     @id @default(cuid())
   placeId    String?    @map("place_id")
@@ -316,8 +332,20 @@ model GuideRequest {
   /// Pro-Ort-Feintuning: Record<locality, Record<areaKey, delta>>
   /// z. B. { "Bellagio": { "foodBudget": 2, "sights": 1 } }
   localityCounts Json         @default("{}")
+  /// Ausdrücklich gewünschte Einträge ("❤️ in den Guide"), Array von
+  /// Place-/Hike-IDs. Diese erscheinen IMMER – unabhängig von Auswahl-Engine,
+  /// Zielmengen und harten Filtern.
+  pinnedIds     Json          @default("[]") @map("pinned_ids")
   status        RequestStatus @default(pending)
   error         String?
+  /// Fortschritt der laufenden Textgenerierung (Kapitel `done` von `total`)
+  progressDone  Int           @default(0) @map("progress_done")
+  progressTotal Int           @default(0) @map("progress_total")
+  /// Woran gerade geschrieben wird (Kapitel-Titel), für die Anzeige
+  progressLabel String        @default("") @map("progress_label")
+  /// Letztes Lebenszeichen des Workers – ohne das sieht ein abgestürzter
+  /// Worker aus wie ein laufender.
+  heartbeatAt   DateTime?     @map("heartbeat_at")
   createdAt     DateTime      @default(now()) @map("created_at")
   guides        Guide[]
 

@@ -39,6 +39,10 @@ export default function AreaControl({
   // Bestand erschöpft -> Recherche NICHT automatisch starten (Kosten!),
   // sondern erst einen ausdrücklichen Button anbieten.
   const [exhausted, setExhausted] = useState(false);
+  // Schon gezeigte Vorschläge: Ohne diese Liste liefert "🔄 Anderer" wieder
+  // den nächstgelegenen Treffer – also denselben Ort wie eben.
+  const [seenNames, setSeenNames] = useState<string[]>([]);
+
   // Eigener Tipp: Formular für einen Ort, den die Reisenden selbst kennen.
   const [ownOpen, setOwnOpen] = useState(false);
   const [own, setOwn] = useState({ name: "", note: "", address: "" });
@@ -131,11 +135,12 @@ export default function AreaControl({
       const res = await fetch(`/api/guides/${token}/suggest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ area, locality }),
+        body: JSON.stringify({ area, locality, exclude: seenNames.slice(-30) }),
       });
       const data = (await res.json().catch(() => ({}))) as { candidate?: Candidate; error?: string };
       if (res.ok && data.candidate) {
         setCandidate(data.candidate);
+        setSeenNames((prev) => [...prev, data.candidate!.name]);
         setNote(null);
       } else {
         setNote(data.error ?? "Kein Vorschlag gefunden.");

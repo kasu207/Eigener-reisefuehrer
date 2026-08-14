@@ -5,6 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Die Codebasis ist durchgehend **deutschsprachig**: Kommentare, Doc-Blöcke,
 Commit-Messages, UI-Texte und Fehlermeldungen. Neuer Code hält das ein.
 
+## Memory Bank – zuerst lesen, zuletzt schreiben
+
+- `memory-bank/project-overview.md` – was das Projekt ist und will
+- `memory-bank/progress.md` – Ticket-System und Wissensdatenbank: erledigt,
+  offen, gemachte Fehler und ihre Behebung
+
+**Nach jeder abgeschlossenen Aufgabe `memory-bank/progress.md` fortschreiben.**
+Das ist kein optionaler Schritt: Der nächste Agent startet ohne dein
+Kontextfenster und wiederholt sonst deine Fehler. Hinein gehören erledigte
+Arbeit, neu entdeckte Fallstricke und was als Nächstes ansteht.
+
 ## Befehle
 
 ```bash
@@ -144,6 +155,18 @@ die Guides.
   `src/lib/basic-auth.ts`.
 - Der Worker ist ein eigener Prozess (`tsx src/worker/index.ts`), keine
   Next-Route. Ohne ihn bleiben Guides im Skeleton-Zustand.
+- **Referenzen auf Place-IDs liegen in JSON-Spalten:** `guides.content`,
+  `guides.selection` und `guide_requests.pinned_ids`. `renderPlaceEntry`
+  liefert für unbekannte IDs `null` – ein gelöschter Ort verschwindet damit
+  **stillschweigend** aus bestehenden Guides, samt bereits geschriebenem Text.
+  Wer Orte löscht oder zusammenführt, muss alle drei Stellen mitziehen
+  (`src/lib/merge-places.ts`).
+- **Harte Filter sind unsichtbar.** Ein Restaurant ohne `dietaryOptions`
+  verschwindet für jeden Gast mit Ernährungsweise – ohne Fehlermeldung, ohne
+  Log; dasselbe gilt für `access: "car"` bei reinen Fußgängern. Frisch
+  angelegte oder importierte Orte haben diese Felder leer. Bei jeder neuen
+  Datenquelle prüfen, ob die angelegten Felder die harten Filter überstehen.
+  `/admin/places` zeigt genau diese Lücken rot an.
 - **Kein `loading.tsx` unter `src/app/guide/[token]/`.** Das setzt die Seite
   in eine Suspense-Grenze und streamt die Antwort – der 200er-Header ist
   dann längst raus, wenn `notFound()` greift. Ein nicht existierender
@@ -157,3 +180,4 @@ die Guides.
 - `KURATION.md` – Redaktionsanleitung für den Admin-Bereich (Orte, Wanderungen,
   Preisklassen, Bildlizenzen, Wissensbibliothek)
 - `DEPLOY.md` – Docker-Deployment auf eigenem Server
+- `memory-bank/` – Projektziel und laufender Arbeitsstand (siehe oben)

@@ -9,7 +9,7 @@ Getestet für einen einzelnen Linux-Server mit Docker + Docker-Compose-Plugin
 ssh root@49.12.97.244
 
 # Variante A: privates GitHub-Repo klonen (Personal Access Token nötig)
-git clone -b main https://github.com/kasu207/Eigener-reisefuehrer-.git reisefuehrer
+git clone -b main https://github.com/kasu207/Eigener-reisefuehrer.git reisefuehrer
 cd reisefuehrer
 
 # Variante B: ohne GitHub-Zugang – vom eigenen Rechner hochladen:

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   selectContent,
+  applyPinnedEntries,
   hikePassesHardFilters,
   restaurantPassesHardFilters,
   placePassesHardFilters,
@@ -237,5 +238,94 @@ describe("Faktentreue-Prüfung (Anforderung 8)", () => {
     const check = validateContentAgainstSelection(content, s);
     expect(check.ok).toBe(false);
     expect(check.unknownIds).toEqual(["erfunden"]);
+  });
+});
+
+describe("gesetzte Einträge (❤️ In den Guide)", () => {
+  it("nimmt einen frisch recherchierten Ort auf, obwohl er die harten Filter reißt", () => {
+    // Genau der Fall aus der Praxis: Ein per "+"-Recherche angelegtes
+    // Restaurant hat noch keine Ernährungsangaben und fiele bei gewählter
+    // vegetarischer Ernährung durch den harten Filter – der Nutzer hat es
+    // aber selbst ausgewählt.
+    const q = makeQuestionnaire({ diets: ["vegetarian"] });
+    const fresh = makePlace({ id: "fresh", type: "restaurant", priceLevel: 2, dietaryOptions: [] });
+    expect(restaurantPassesHardFilters(fresh, q)).toBe(false);
+
+    const selection = selectContent([fresh], [], q);
+    expect(selection.restaurantIds).not.toContain("fresh");
+
+    applyPinnedEntries(selection, new Set(["fresh"]), [fresh], []);
+    expect(selection.restaurantIds).toContain("fresh");
+  });
+
+  it("sticht das Scoring: der gesetzte Ort kommt zusätzlich zu den bestbewerteten", () => {
+    const q = makeQuestionnaire();
+    const strong = makePlace({ id: "strong", qualityScore: 5, tags: ["kultur", "aussicht"] });
+    const weak = makePlace({ id: "weak", qualityScore: 1 });
+
+    const selection = selectContent([strong, weak], [], q);
+    applyPinnedEntries(selection, new Set(["weak"]), [strong, weak], []);
+
+    expect(selection.placeIds).toContain("weak");
+    expect(selection.placeIds).toContain("strong");
+  });
+
+  it("sortiert nach Art: Bars zu Gastro, Praktisches zu Praktischem, Wanderungen zu Wanderungen", () => {
+    const q = makeQuestionnaire();
+    const bar = makePlace({ id: "bar", type: "bar" });
+    const practical = makePlace({ id: "practical", type: "practical" });
+    const hike = makeHike({ id: "hike", durationMin: 9999, elevationGainM: 9999 });
+
+    const selection = selectContent([], [], q);
+    applyPinnedEntries(selection, new Set(["bar", "practical", "hike"]), [bar, practical], [hike]);
+
+    expect(selection.restaurantIds).toContain("bar");
+    expect(selection.practicalIds).toContain("practical");
+    expect(selection.hikeIds).toContain("hike");
+    expect(selection.placeIds).not.toContain("bar");
+  });
+
+  it("legt bereits ausgewählte Einträge nicht doppelt ab", () => {
+    const q = makeQuestionnaire();
+    const p = makePlace({ id: "dup", qualityScore: 5 });
+    const selection = selectContent([p], [], q);
+
+    applyPinnedEntries(selection, new Set(["dup"]), [p], []);
+    applyPinnedEntries(selection, new Set(["dup"]), [p], []);
+
+    expect(selection.placeIds.filter((id) => id === "dup")).toHaveLength(1);
+  });
+
+  it("lässt die Auswahl unverändert, wenn nichts gesetzt ist", () => {
+    const q = makeQuestionnaire();
+    const p = makePlace({ id: "a" });
+    const selection = selectContent([p], [], q);
+    const before = JSON.stringify(selection);
+
+    applyPinnedEntries(selection, new Set(), [p], []);
+    expect(JSON.stringify(selection)).toBe(before);
+  });
+
+  it("bleibt für den Faktentreue-Check gültig", () => {
+    const q = makeQuestionnaire({ diets: ["vegan"] });
+    const fresh = makePlace({ id: "fresh", type: "restaurant", dietaryOptions: [] });
+    const selection = selectContent([fresh], [], q);
+    applyPinnedEntries(selection, new Set(["fresh"]), [fresh], []);
+
+    const content: GuideContent = {
+      intro: { title: "Euer Comer See", text: "…" },
+      chapters: [
+        {
+          key: "town-torno",
+          kind: "town",
+          title: "Torno",
+          introText: "…",
+          entries: [{ id: "fresh", personalText: "…", reason: "…" }],
+        },
+      ],
+      daySuggestions: [],
+      removedIds: [],
+    };
+    expect(validateContentAgainstSelection(content, selection).ok).toBe(true);
   });
 });
