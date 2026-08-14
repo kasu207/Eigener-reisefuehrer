@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { isUsableAddress } from "../src/lib/coordinates";
 
 /**
  * NUR-LESEN-Bericht über den Zustand der Koordinaten im Ortsbestand.
@@ -107,6 +108,30 @@ async function main() {
         );
       }
       if (atCenter.length > 40) console.log(`    … und ${atCenter.length - 40} weitere`);
+    }
+
+    // Adressfelder, die keine Adresse enthalten (kopierte Maps-URLs o. Ä.)
+    const junkAddress = places.filter((p) => p.address.trim() && !isUsableAddress(p.address));
+    if (junkAddress.length > 0) {
+      console.log("\n  Adressfeld enthält keine Adresse (wird ignoriert):");
+      for (const p of junkAddress) {
+        console.log(`    ${p.name} · ${p.locality || "ohne Ort"} · ${p.address.slice(0, 60)}…`);
+      }
+    }
+
+    // Widerspruch zwischen Ort/Stadt und der Stadt in der Adresse: Der Eintrag
+    // erscheint dann im falschen Kapitel, auch wenn die Koordinaten stimmen.
+    const mismatch = places.filter((p) => {
+      const loc = p.locality.trim().toLowerCase();
+      if (!loc || !isUsableAddress(p.address)) return false;
+      return !p.address.toLowerCase().includes(loc);
+    });
+    if (mismatch.length > 0) {
+      console.log("\n  Ort/Stadt passt nicht zur Adresse (Kapitel-Zuordnung prüfen):");
+      for (const p of mismatch.slice(0, 20)) {
+        console.log(`    ${p.name} · Ort/Stadt: ${p.locality} · Adresse: ${p.address}`);
+      }
+      if (mismatch.length > 20) console.log(`    … und ${mismatch.length - 20} weitere`);
     }
 
     if (farAway.length > 0) {

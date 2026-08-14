@@ -177,6 +177,24 @@ Wanderungen machten es von Anfang an richtig (`startLat,startLng`), die Orte
 nicht. **Behebung:** `placeMapsHref` – Koordinaten zuerst. **Lehre:** Wenn
 exakte Daten vorliegen, keine Suche daraus bauen.
 
+### Der echte Bestand widerspricht sich (Befund 129 Orte, Comer See)
+
+Der erste Bericht gegen die Produktions-DB zeigte: 67 von 129 Orten auf der
+Regions-Mitte, davon **Torno 50 von 50**. Dazu drei Datenprobleme, die keine
+Koordinaten-Ermittlung heilt:
+1. **Adressfeld mit kopierter Google-Maps-URL** statt einer Anschrift →
+   `isUsableAddress` verwirft solche Werte jetzt.
+2. **`locality` widerspricht der Adresse** („Mailand" bei Adressen in
+   Malgrate; „Torno" bei einer Adresse in Bellagio). Deshalb wird die Stadt
+   NICHT mehr an eine vollständige Adresse angehängt – sonst entsteht eine
+   Suche, die nirgends passt. Der Bericht listet die Widersprüche.
+3. **Vermutlich erfundene KI-Entwürfe:** Torno (~1200 Einwohner) hat im
+   Bestand ~20 Bars/Cafés mit Gattungsnamen („Caffè del Lago", „Bar Il Molo").
+   Für nicht existierende Orte findet keine Geocodierung etwas – sie landen
+   bestenfalls auf der Ortsmitte. **Lehre:** Erst den Bestand auf Echtheit
+   prüfen, dann verorten; `importOsmPlaces` liefert echte Orte mit echten
+   Koordinaten.
+
 ### Nominatim sperrt bei Stapelläufen
 
 Ein Nachtrag über hunderte Orte darf nicht parallel laufen: Nominatim erlaubt

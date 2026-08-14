@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isPlausible,
   isRegionCenter,
+  isUsableAddress,
   resolvePlaceCoordinates,
   type CoordinateLookups,
   type RegionAnchor,
@@ -147,5 +148,51 @@ describe("resolvePlaceCoordinates", () => {
     );
     expect(out.lat).not.toBe(COMER.centerLat);
     expect(out.lat).toBe(TORNO_CENTER.lat);
+  });
+});
+
+describe("isUsableAddress", () => {
+  it("akzeptiert echte Anschriften", () => {
+    expect(isUsableAddress("Via Plinio 20, Torno, CO")).toBe(true);
+    expect(isUsableAddress("Lungolago, 23864 Malgrate LC")).toBe(true);
+  });
+
+  it("verwirft kopierte Maps-URLs aus dem Adressfeld", () => {
+    // Kommt im Bestand vor – ungeprüft geocodiert liefert das Unsinn.
+    expect(
+      isUsableAddress("https://maps.google.com/maps?vet=10CAAQoqAOahcKEwj41&client=safari")
+    ).toBe(false);
+  });
+
+  it("verwirft leere und unbrauchbar kurze Werte", () => {
+    expect(isUsableAddress("")).toBe(false);
+    expect(isUsableAddress("  ")).toBe(false);
+    expect(isUsableAddress("12")).toBe(false);
+  });
+
+  it("hängt die Stadt nicht an eine vollständige Adresse an", async () => {
+    // Im Bestand widerspricht locality der Adresse ("Mailand" bei einer
+    // Adresse in Malgrate) – angehängt entstünde eine unauffindbare Suche.
+    let gefragt = "";
+    const out = await resolvePlaceCoordinates(
+      {
+        name: "Lungolago di Malgrate",
+        locality: "Mailand",
+        address: "Lungolago, 23864 Malgrate LC",
+        region: COMER,
+      },
+      {
+        geocode: async ({ label }) => {
+          if (label.startsWith("Lungolago")) {
+            gefragt = label;
+            return { lat: 45.85, lng: 9.38 };
+          }
+          return null;
+        },
+        findPoi: async () => null,
+      }
+    );
+    expect(gefragt).toBe("Lungolago, 23864 Malgrate LC");
+    expect(out.source).toBe("address");
   });
 });

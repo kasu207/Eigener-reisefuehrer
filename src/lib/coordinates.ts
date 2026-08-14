@@ -102,6 +102,20 @@ export function isRegionCenter(lat: number, lng: number, region: RegionAnchor): 
   return Math.abs(lat - region.centerLat) < 0.0005 && Math.abs(lng - region.centerLng) < 0.0005;
 }
 
+/**
+ * Taugt der Inhalt des Adressfelds als Adresse?
+ *
+ * Im Bestand steht dort gelegentlich eine kopierte Google-Maps-URL statt einer
+ * Anschrift. Ungeprüft an Nominatim geschickt, liefert das entweder nichts
+ * oder – schlimmer – irgendeinen Zufallstreffer.
+ */
+export function isUsableAddress(address: string): boolean {
+  const value = address.trim();
+  if (value.length < 4 || value.length > 200) return false;
+  if (/https?:\/\/|www\.|maps\.google|\?|&|=/i.test(value)) return false;
+  return /\p{L}/u.test(value);
+}
+
 export async function resolvePlaceCoordinates(
   input: ResolveInput,
   lookups: CoordinateLookups = DEFAULT_LOOKUPS
@@ -131,10 +145,14 @@ export async function resolvePlaceCoordinates(
       })
     : null;
 
-  // 1) Adresse ist die verlässlichste Angabe, wenn sie gepflegt ist.
-  if (address) {
+  // 1) Adresse ist die verlässlichste Angabe – wenn sie eine Adresse ist.
+  if (isUsableAddress(address)) {
+    // Die Stadt NICHT anhängen: Eine vollständige Adresse ("Lungolago, 23864
+    // Malgrate LC") nennt den Ort bereits, und im Bestand widerspricht das
+    // `locality`-Feld ihr gelegentlich ("Mailand" bei einer Adresse in
+    // Malgrate). Angehängt würde daraus eine Suche, die nirgends passt.
     const hit = await lookups.geocode({
-      label: [address, locality].filter(Boolean).join(", "),
+      label: address,
       regionName: region.name,
       country: region.country,
       centerLat: region.centerLat,
