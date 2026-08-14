@@ -6,7 +6,7 @@ import { questionnaireSchema } from "@/lib/questionnaire";
 import { qrDataUri } from "@/lib/qr";
 import { foodTier } from "@/lib/selection";
 import { parseAreaCounts, type AreaKey } from "@/lib/areas";
-import { cleanName, mapsHref } from "@/lib/names";
+import { cleanName, mapsHref, placeMapsHref } from "@/lib/names";
 import GuideMap, { type MapMarker } from "@/components/GuideMap";
 import AdjustPanel from "@/components/AdjustPanel";
 import FineTunePanel from "@/components/FineTunePanel";
@@ -265,10 +265,14 @@ export default async function GuidePage({
     if (!place) return null;
     const name = cleanName(place.name);
     const hasAddress = Boolean(place.address?.trim());
-    const mapsQuery = hasAddress
-      ? place.address
-      : `${name}${place.locality ? `, ${place.locality}` : ""}`;
-    const mapsUrl = mapsHref(mapsQuery);
+    const mapsUrl = placeMapsHref({
+      name,
+      locality: place.locality,
+      address: place.address,
+      lat: place.lat,
+      lng: place.lng,
+      regionCenter: region ? { lat: region.centerLat, lng: region.centerLng } : undefined,
+    });
     return (
       <article key={entry.id} className="print-avoid-break border-t border-neutral-100 pt-4">
         <EntryHeader id={entry.id} name={name} level={level} />

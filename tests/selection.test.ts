@@ -356,7 +356,7 @@ describe("Tagesausflüge", () => {
 
   it("hält die harten Filter ein", () => {
     // Kleine Kinder + nicht kindertauglich = raus, wie bei jedem anderen Typ
-    const q = makeQuestionnaire({ children: [{ ageGroup: "0-3", count: 1 }] });
+    const q = makeQuestionnaire({ children: [{ ageGroup: "0-3" }] });
     const trip = makePlace({ id: "trip", type: "daytrip", childFriendly: false });
     expect(selectContent([trip], [], q).placeIds).not.toContain("trip");
   });

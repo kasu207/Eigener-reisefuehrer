@@ -16,7 +16,9 @@
     "db:seed:daytrips": "tsx prisma/seed-daytrips-comer.ts",
     "db:backfill-place-ids": "tsx prisma/backfill-place-ids.ts",
     "db:demote-unsafe-auto-research": "tsx prisma/demote-unsafe-auto-research.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:report-coords": "tsx prisma/report-coordinates.ts",
+    "db:backfill-coords": "tsx prisma/backfill-coordinates.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.0",

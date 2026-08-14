@@ -9,6 +9,18 @@ Format: neueste Einträge oben.
 
 ## Erledigt
 
+### 2026-08-14 · Karten-Links auf Koordinaten + Nachtrag-Skripte
+
+- **Google-Maps-Link zeigte nie auf die Koordinaten.** `renderPlaceEntry` baute
+  ihn aus Adresse oder „Name, Ort" – eine Suche, die Google bei kleinen Lokalen
+  oft nicht auflöst. Neu: `placeMapsHref` nimmt zuerst die Koordinaten aus der
+  DB, Adresse und Name sind nur noch Rückfall für Platzhalter-Koordinaten.
+  Betrifft Guide-Seite UND Markdown-/PDF-Export.
+- `npm run db:report-coords` – reiner Lesebericht über den Koordinaten-Zustand
+  (Platzhalter, Ausreißer >60 km, Häufungen, Verteilung je Stadt).
+- `npm run db:backfill-coords` – Nachtrag für den gesamten Bestand mit
+  `--dry-run`, `--region=`, `--all`, `--limit=`. Ohne Stapelgrenze der Admin-UI.
+
 ### 2026-08-14 · Koordinaten automatisch ermitteln + Kategorie „Tagesausflüge"
 
 - `src/lib/coordinates.ts`: `resolvePlaceCoordinates` als Kaskade
@@ -154,6 +166,16 @@ Auswahl-Engine fand die Einträge einfach nicht. **Behebung:** Kaskade in
 stehen UND taucht in `/admin/places/coordinates` auf. **Lehre:** Ein
 Platzhalter, der wie ein echter Wert aussieht, versteckt das Problem, statt es
 zu melden – entweder als Lücke sichtbar machen oder gar nicht erst setzen.
+
+### Karten-Link ignorierte die vorhandenen Koordinaten
+
+**Symptom:** „Auf Google Maps öffnen" landete nirgends, obwohl der Ort in der
+DB Koordinaten hatte. **Ursache:** Der Link wurde aus Adresse bzw. „Name, Ort"
+als Google-**Suchbegriff** gebaut. Kleine Lokale sind dort nicht unter dem
+redaktionell vergebenen Namen verzeichnet – die Suche läuft ins Leere. Die
+Wanderungen machten es von Anfang an richtig (`startLat,startLng`), die Orte
+nicht. **Behebung:** `placeMapsHref` – Koordinaten zuerst. **Lehre:** Wenn
+exakte Daten vorliegen, keine Suche daraus bauen.
 
 ### Nominatim sperrt bei Stapelläufen
 

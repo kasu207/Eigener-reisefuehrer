@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { guideContentSchema } from "@/lib/guide-content";
 import { questionnaireSchema } from "@/lib/questionnaire";
-import { cleanName, mapsHref } from "@/lib/names";
+import { cleanName, mapsHref, placeMapsHref } from "@/lib/names";
 import type { Place, Hike } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -110,11 +110,17 @@ export async function GET(
       const facts = place ? placeFacts(place) : hike ? hikeFacts(hike) : "";
       if (facts) out.push(`_${facts}_`);
       if (place) {
-        const query = place.address?.trim()
-          ? place.address
-          : `${name}${place.locality ? `, ${place.locality}` : ""}`;
         if (place.address?.trim()) out.push(`Adresse: ${place.address}`);
-        out.push(`[📍 Auf Google Maps öffnen](${mapsHref(query)})`);
+        out.push(
+          `[📍 Auf Google Maps öffnen](${placeMapsHref({
+            name,
+            locality: place.locality,
+            address: place.address,
+            lat: place.lat,
+            lng: place.lng,
+            regionCenter: region ? { lat: region.centerLat, lng: region.centerLng } : undefined,
+          })})`
+        );
       } else if (hike) {
         out.push(`[📍 Startpunkt auf Google Maps](${mapsHref(`${hike.startLat},${hike.startLng}`)})`);
       }
