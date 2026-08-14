@@ -190,6 +190,14 @@ jedem Guide der Region. Drei Formate:
 - Im Guide selbst (als Besitzer) kannst du zusätzlich **jeden Text inline
   bearbeiten**, Einträge **entfernen** und den Umfang **je Bereich** über
   „Feintuning" (mehr/weniger) anpassen – z. B. mehr günstige Cafés.
+- **Essen nach Preisklasse:** „+" bei günstig/mittel/gehoben sucht jetzt
+  wirklich getrennt. OpenStreetMap wird nach Preisklasse gefiltert (Betriebsart,
+  `price_range`, Michelin-Tag, Reservierungspflicht, Küche); Orte ohne
+  erkennbare Preisangabe gelten als günstig/mittel plausibel, für **gehoben**
+  aber nicht – dort übernimmt automatisch die KI-Websuche, die Preisniveaus
+  belegen kann. Ein Ort, den es im Guide-Ort schon gibt, wird in **keiner**
+  Preisklasse erneut vorgeschlagen, und „🔄 Anderer" merkt sich die bereits
+  gezeigten Vorschläge.
 - Ein per „🔎 Neuen Ort recherchieren" gefundener und mit **„❤️ In den Guide"**
   übernommener Ort wird **gesetzt** (gepinnt): Er erscheint im nächsten
   Generierungslauf garantiert – auch wenn ihm noch Tags, Ernährungs- oder

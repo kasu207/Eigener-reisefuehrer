@@ -38,7 +38,24 @@ export interface ResearchInput {
   priceLevelMax: number;
   diets: string[];
   excludeNames: string[];
+  /**
+   * Gesuchte Preisklasse bei Gastro-Bereichen. Genau hier ist die Websuche der
+   * OSM-Suche überlegen: OpenStreetMap kennt kaum Preisangaben, Blogs und
+   * Restaurantseiten schon. Ohne diese Vorgabe liefern günstig/mittel/gehoben
+   * dieselben Lokale.
+   */
+  priceTier?: PriceTier;
 }
+
+export type PriceTier = "fancy" | "mid" | "budget";
+
+const TIER_INSTRUCTION: Record<PriceTier, string> = {
+  fancy:
+    "GEHOBEN (Preisniveau 4/4): gehobene Küche, Fine Dining, Auszeichnungen oder ein bekannt hochpreisiges Haus. Keine Trattorien mit Alltagspreisen, keine Cafés.",
+  mid: "MITTELKLASSE (Preisniveau 3/4): solide Restaurants/Trattorien mit normalem Abendessen-Preis. Weder Fine Dining noch Imbiss/Café.",
+  budget:
+    "GÜNSTIG (Preisniveau 1-2/4): Cafés, Bäckereien, Imbisse, einfache Osterien, Eisdielen. Keine gehobenen Restaurants.",
+};
 
 function mapsUrl(name: string, locality: string): string {
   const q = encodeURIComponent(`${name} ${locality}`.trim());
@@ -111,12 +128,16 @@ export async function researchPlaceCandidates(input: ResearchInput): Promise<Pla
     });
   }
 
+  const tierLine = input.priceTier
+    ? `\n- GESUCHTE PREISKLASSE: ${TIER_INSTRUCTION[input.priceTier]}\n  Belege das Preisniveau (Speisekarte, Bericht) und setze "priceLevel" entsprechend.`
+    : "";
+
   const prompt = `Finde bis zu ${CANDIDATES_PER_CALL} echte ${input.areaLabel} in ${input.locality} am ${input.regionName}, die zu diesen Reisenden passen.
 
 Reise-Kontext:
 - Interessen: ${input.interests.join(", ") || "offen"}
 - Preisniveau bis: ${input.priceLevelMax}/4
-- Ernährung: ${input.diets.join(", ") || "keine Einschränkung"}
+- Ernährung: ${input.diets.join(", ") || "keine Einschränkung"}${tierLine}
 
 Bereits enthalten (NICHT erneut vorschlagen): ${input.excludeNames.join("; ") || "(keine)"}.
 
@@ -147,5 +168,29 @@ Liefere so viele passende, reale Orte wie du sicher belegen kannst (bis zu ${CAN
     seen.add(key);
     out.push(c);
   }
-  return out;
+  return filterByPriceTier(out, input.priceTier);
+}
+
+/** Passt ein belegtes Preisniveau zur gesuchten Klasse? */
+export function priceLevelMatchesTier(level: number | null, tier: PriceTier): boolean {
+  if (level == null) return true; // unbelegt: nicht ausschließen, nur nachrangig
+  if (tier === "fancy") return level >= 4;
+  if (tier === "mid") return level === 3;
+  return level <= 2;
+}
+
+/**
+ * Kandidaten mit klar abweichender Preisklasse verwerfen und belegte Treffer
+ * nach vorn ziehen. Das Modell kennt die gesuchte Klasse aus dem Prompt – ein
+ * Vorschlag, der ihr widerspricht, ist genau die Verwechslung, wegen der
+ * günstig/mittel/gehoben vorher dasselbe lieferten.
+ */
+export function filterByPriceTier(
+  candidates: PlaceCandidate[],
+  tier?: PriceTier
+): PlaceCandidate[] {
+  if (!tier) return candidates;
+  return candidates
+    .filter((c) => priceLevelMatchesTier(c.priceLevel, tier))
+    .sort((a, b) => Number(a.priceLevel == null) - Number(b.priceLevel == null));
 }
