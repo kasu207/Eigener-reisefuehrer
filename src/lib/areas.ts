@@ -13,6 +13,7 @@ export const AREA_KEYS = [
   "foodBudget",
   "bars",
   "hotels",
+  "daytrips",
 ] as const;
 
 export type AreaKey = (typeof AREA_KEYS)[number];
@@ -25,6 +26,7 @@ export const AREA_LABELS: Record<AreaKey, string> = {
   foodBudget: "Essen: Günstig & Cafés",
   bars: "Ausgehen & Aperitivo",
   hotels: "Unterkunft",
+  daytrips: "Tagesausflüge",
 };
 
 export const areaCountsSchema = z
@@ -106,6 +108,12 @@ export function areaDefaults(area: AreaKey): { type: string; priceLevel: number 
       return { type: "bar", priceLevel: 2, label: "Bar/Aperitivo-Ort" };
     case "hotels":
       return { type: "hotel", priceLevel: 3, label: "Unterkunft/Hotel" };
+    case "daytrips":
+      return {
+        type: "daytrip",
+        priceLevel: null,
+        label: "Tagesausflug (Nachbarort, Ausflugsziel oder Tour in der Umgebung)",
+      };
     case "foodFancy":
       return { type: "restaurant", priceLevel: 4, label: "gehobenes Restaurant" };
     case "foodMid":
@@ -133,6 +141,8 @@ export function placeMatchesArea(
       return type === "bar";
     case "hotels":
       return type === "hotel";
+    case "daytrips":
+      return type === "daytrip";
     case "foodFancy":
       return type === "restaurant" && priceLevel != null && priceLevel >= 4;
     case "foodMid":

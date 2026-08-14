@@ -41,6 +41,7 @@ export default function PlaceForm({
             <option value="bar">Bar</option>
             <option value="hotel">Unterkunft/Hotel</option>
             <option value="event">Veranstaltung</option>
+            <option value="daytrip">Tagesausflug</option>
             <option value="practical">Praktisches</option>
           </select>
         </div>

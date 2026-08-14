@@ -28,6 +28,10 @@ enum PlaceType {
   hotel
   event
   practical
+  /// Ausflugsziel in der weiteren Umgebung, das einen ganzen Tag füllt
+  /// (Nachbarort, Bergbahn, Talwanderung). Bewusst ein eigener Typ und nicht
+  /// "sight": Ein Tagesausflug wird anders geplant als ein Halt um die Ecke.
+  daytrip
 }
 
 enum InfoFormat {

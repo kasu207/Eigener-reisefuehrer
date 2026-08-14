@@ -289,3 +289,106 @@ export async function searchOsmPlaceCandidates(input: OsmSearchInput): Promise<P
     .slice(0, MAX_RESULTS)
     .map((x) => x.c);
 }
+
+/**
+ * Einen konkreten POI in OpenStreetMap **nach Namen** suchen (statt nach
+ * Kategorie im Umkreis). Das ist die genaueste Quelle für Koordinaten: Findet
+ * sich der Ort, stimmen Position und Adresse punktgenau – anders als beim
+ * Freitext-Geocoding, das im Zweifel den Ortsmittelpunkt zurückgibt.
+ */
+export interface OsmPoiLookup {
+  name: string;
+  lat: number;
+  lng: number;
+  radiusM?: number;
+  fetchImpl?: typeof fetch;
+}
+
+export interface OsmPoiHit {
+  lat: number;
+  lng: number;
+  address: string | null;
+  osmUrl: string;
+  /** Wie gut der gefundene Name zum gesuchten passt (0–1). */
+  nameScore: number;
+}
+
+/** Overpass-Regex: Sonderzeichen entschärfen, damit der Name literal bleibt. */
+export function escapeOverpassRegex(name: string): string {
+  return name.replace(/[\\"^$.*+?()[\]{}|/]/g, "\\$&");
+}
+
+export function buildNameQuery(name: string, lat: number, lng: number, radiusM: number): string {
+  const escaped = escapeOverpassRegex(name.trim());
+  return `[out:json][timeout:15];\nnwr["name"~"${escaped}",i](around:${radiusM},${lat},${lng});\nout center tags 10;`;
+}
+
+/**
+ * Ähnlichkeit zweier Ortsnamen, tolerant gegenüber Zusätzen ("Ristorante").
+ * Bewusst hier dupliziert statt aus `duplicates.ts` importiert: Diese Datei
+ * läuft auch im Worker-Kontext und soll keine Kuratierungs-Logik nachziehen.
+ */
+function simpleNameScore(a: string, b: string): number {
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+  const x = norm(a);
+  const y = norm(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.includes(y) || y.includes(x)) return 0.9;
+  const xWords = new Set(x.split(" "));
+  const yWords = new Set(y.split(" "));
+  const shared = [...xWords].filter((w) => yWords.has(w)).length;
+  return shared === 0 ? 0 : shared / Math.max(xWords.size, yWords.size);
+}
+
+export async function findOsmPoiByName(input: OsmPoiLookup): Promise<OsmPoiHit | null> {
+  const name = input.name.trim();
+  if (!name) return null;
+  const radius = input.radiusM ?? 4000;
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const query = buildNameQuery(name, input.lat, input.lng, radius);
+
+  let elements: OverpassElement[];
+  try {
+    const res = await fetchImpl(OVERPASS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Reisefuehrer-OSM/1.0 (kuratierter Reiseführer)",
+      },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`Overpass ${res.status}`);
+    const data = (await res.json()) as { elements?: OverpassElement[] };
+    elements = data.elements ?? [];
+  } catch (e) {
+    console.error("[osm-places] Namenssuche fehlgeschlagen:", e);
+    return null;
+  }
+
+  const hits = elements
+    .map((el) => {
+      const tags = el.tags ?? {};
+      const lat = el.lat ?? el.center?.lat;
+      const lng = el.lon ?? el.center?.lon;
+      if (lat == null || lng == null || !tags.name) return null;
+      return {
+        lat,
+        lng,
+        address: addressFrom(tags),
+        osmUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+        nameScore: simpleNameScore(name, tags.name),
+      };
+    })
+    .filter((h): h is OsmPoiHit => h != null && h.nameScore >= 0.6)
+    .sort((a, b) => b.nameScore - a.nameScore);
+
+  return hits[0] ?? null;
+}

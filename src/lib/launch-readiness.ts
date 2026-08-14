@@ -35,6 +35,9 @@ export const MIN_STOCK: Record<AreaKey, number> = {
   foodBudget: 12,
   bars: 6,
   hotels: 6,
+  // Tagesausflüge sind pro Guide wenige, aber ohne Bestand bleibt das
+  // Kapitel leer – vier Ziele decken auch eine lange Reise ab.
+  daytrips: 4,
 };
 
 export interface ReadinessInput {

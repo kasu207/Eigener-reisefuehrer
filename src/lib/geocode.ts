@@ -11,6 +11,27 @@
 
 const cache = new Map<string, { lat: number; lng: number } | null>();
 
+/**
+ * Nominatim erlaubt höchstens eine Anfrage pro Sekunde. Beim Nachtragen
+ * hunderter Koordinaten würde ein Schwall Anfragen die IP sperren – deshalb
+ * laufen alle Abfragen durch diese Warteschlange, nie parallel.
+ */
+const MIN_REQUEST_GAP_MS = 1100;
+let lastRequest = 0;
+let queue: Promise<unknown> = Promise.resolve();
+
+function throttled<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queue.then(async () => {
+    const wait = MIN_REQUEST_GAP_MS - (Date.now() - lastRequest);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastRequest = Date.now();
+    return fn();
+  });
+  // Fehler dürfen die Warteschlange nicht abreißen lassen
+  queue = run.catch(() => undefined);
+  return run;
+}
+
 export async function geocodePlace(params: {
   label: string;
   regionName?: string;
@@ -45,13 +66,15 @@ export async function geocodePlace(params: {
   }
 
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?${search.toString()}`, {
-      headers: {
-        "User-Agent": "Reisefuehrer-Geocode/1.0 (kuratierter Reiseführer)",
-        "Accept-Language": "de",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
+    const res = await throttled(() =>
+      fetch(`https://nominatim.openstreetmap.org/search?${search.toString()}`, {
+        headers: {
+          "User-Agent": "Reisefuehrer-Geocode/1.0 (kuratierter Reiseführer)",
+          "Accept-Language": "de",
+        },
+        signal: AbortSignal.timeout(10_000),
+      })
+    );
     if (!res.ok) throw new Error(`Nominatim ${res.status}`);
     const data = (await res.json()) as { lat: string; lon: string }[];
     const hit = data[0];

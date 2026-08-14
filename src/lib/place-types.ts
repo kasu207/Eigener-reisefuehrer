@@ -13,6 +13,7 @@ export const PLACE_TYPES = [
   "hotel",
   "event",
   "practical",
+  "daytrip",
 ] as const;
 
 export type PlaceTypeValue = (typeof PLACE_TYPES)[number];
@@ -29,6 +30,9 @@ export const RESEARCHABLE_PLACE_TYPES = [
   "restaurant",
   "bar",
   "hotel",
+  // Tagesausflüge lassen sich gut recherchieren: Nachbarorte, Bergbahnen,
+  // Talwanderungen sind öffentlich beschrieben.
+  "daytrip",
 ] as const;
 
 export type ResearchablePlaceType = (typeof RESEARCHABLE_PLACE_TYPES)[number];

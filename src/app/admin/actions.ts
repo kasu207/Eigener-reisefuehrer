@@ -13,6 +13,11 @@ import { fetchYoutubeTranscript } from "@/lib/youtube/transcript";
 import { BROWSER_HEADERS } from "@/lib/http";
 import { searchOsmPlaceCandidates } from "@/lib/osm-places";
 import { geocodePlace } from "@/lib/geocode";
+import {
+  resolvePlaceCoordinates,
+  COORDINATE_SOURCE_LABELS,
+  type CoordinateSource,
+} from "@/lib/coordinates";
 import { areaDefaults, AREA_LABELS, type AreaKey } from "@/lib/areas";
 import { parsePinnedIds } from "@/lib/generation-progress";
 import {
@@ -247,6 +252,61 @@ export async function mergePlaces(fd: FormData) {
   revalidatePath(`/admin/places/${keepId}`);
 }
 
+/**
+ * Koordinaten für bestehende Orte nachtragen.
+ *
+ * Der Altbestand wurde großteils mit der Regions-Mitte als Platzhalter
+ * angelegt – am Comer See steht damit jeder Pin im Wasser. Hier laufen die
+ * Einträge durch dieselbe Kaskade wie neu angelegte Orte.
+ *
+ * Bewusst in kleinen Stapeln: Nominatim erlaubt eine Anfrage pro Sekunde, ein
+ * Lauf über 25 Orte dauert also gut eine Minute. Ein „alle auf einmal" würde
+ * entweder in einen Timeout laufen oder die IP sperren.
+ */
+export async function resolvePlaceCoordinatesBulk(fd: FormData) {
+  const ids = idList(fd, "ids").slice(0, 25);
+  if (ids.length === 0) redirect("/admin/places/coordinates");
+
+  const places = await prisma.place.findMany({
+    where: { id: { in: ids } },
+    include: { region: true },
+  });
+
+  const counts = new Map<CoordinateSource, number>();
+  for (const place of places) {
+    const coords = await resolvePlaceCoordinates({
+      name: place.name,
+      locality: place.locality,
+      address: place.address,
+      region: {
+        name: place.region.name,
+        country: place.region.country,
+        centerLat: place.region.centerLat,
+        centerLng: place.region.centerLng,
+      },
+    });
+    counts.set(coords.source, (counts.get(coords.source) ?? 0) + 1);
+    // Die Regions-Mitte erneut zu schreiben bringt nichts – dann lieber
+    // unverändert lassen, damit die Redaktion sieht, dass hier Handarbeit fehlt.
+    if (coords.source === "region-center") continue;
+    await prisma.place.update({
+      where: { id: place.id },
+      data: {
+        lat: coords.lat,
+        lng: coords.lng,
+        // Eine gefundene Adresse nur ergänzen, nie eine gepflegte überschreiben
+        address: place.address.trim() || coords.address || place.address,
+      },
+    });
+  }
+
+  const summary = [...counts.entries()]
+    .map(([source, n]) => `${n}× ${COORDINATE_SOURCE_LABELS[source]}`)
+    .join(", ");
+  revalidatePath("/admin/places");
+  redirect(`/admin/places/coordinates?done=${encodeURIComponent(summary)}`);
+}
+
 /** "Kein Duplikat": Paar dauerhaft aus der Dubletten-Ansicht nehmen. */
 export async function dismissDuplicate(fd: FormData) {
   const [aId, bId] = [str(fd, "aId"), str(fd, "bId")].sort();
@@ -299,18 +359,26 @@ export async function generatePlaceDrafts(fd: FormData) {
 
   let created = 0;
   for (const s of result.suggestions) {
+    // Koordinaten gleich ermitteln statt die Regions-Mitte zu setzen: Sonst
+    // steht jeder KI-Vorschlag mitten im See und die Umkreis-Suche der
+    // Auswahl-Engine findet ihn nie.
+    const coords = await resolvePlaceCoordinates({
+      name: s.name,
+      locality: s.locality || locality,
+      region,
+    });
     await prisma.place.create({
       data: {
         regionId,
         type: s.type as PlaceType,
         name: s.name,
         locality: s.locality || locality,
-        // Platzhalter-Koordinaten (Regions-Mitte) – per Kartenklick korrigieren
-        lat: region.centerLat,
-        lng: region.centerLng,
+        lat: coords.lat,
+        lng: coords.lng,
+        address: coords.address ?? "",
         tags: s.tags.map((t) => t.toLowerCase()),
         priceLevel: s.priceLevel ?? undefined,
-        editorNotes: `[KI-Vorschlag · Sicherheit real: ${s.confidence} · FAKTEN & KOORDINATEN PRÜFEN] ${s.editorNote}`,
+        editorNotes: `[KI-Vorschlag · Sicherheit real: ${s.confidence} · FAKTEN PRÜFEN · Koordinaten: ${coords.reason}] ${s.editorNote}`,
         status: "draft",
       },
     });
@@ -387,18 +455,23 @@ export async function analyzeYoutubeForPlaces(fd: FormData) {
       if (seen.has(key)) continue;
       seen.add(key);
 
+      const coords = await resolvePlaceCoordinates({
+        name: p.name,
+        locality: p.locality,
+        region,
+      });
       const place = await prisma.place.create({
         data: {
           regionId,
           type: p.type as PlaceType,
           name: p.name,
           locality: p.locality,
-          // Platzhalter-Koordinaten (Regions-Mitte) – per Kartenklick korrigieren
-          lat: region.centerLat,
-          lng: region.centerLng,
+          lat: coords.lat,
+          lng: coords.lng,
+          address: coords.address ?? "",
           tags: p.tags.map((t) => t.toLowerCase()),
           priceLevel: p.priceLevel ?? undefined,
-          editorNotes: `[Aus YouTube-Video „${transcript.title}" · Sicherheit real: ${p.confidence} · FAKTEN & KOORDINATEN PRÜFEN] ${p.quote}`,
+          editorNotes: `[Aus YouTube-Video „${transcript.title}" · Sicherheit real: ${p.confidence} · FAKTEN PRÜFEN · Koordinaten: ${coords.reason}] ${p.quote}`,
           status: "draft",
         },
       });

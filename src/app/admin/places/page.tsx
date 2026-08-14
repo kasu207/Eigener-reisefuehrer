@@ -21,6 +21,7 @@ const PLACE_TYPES = [
   "bar",
   "hotel",
   "event",
+  "daytrip",
   "practical",
 ] as const;
 
@@ -121,6 +122,7 @@ export default async function PlacesPage({
   );
   const withGaps = rows.filter((r) => r.gaps.length > 0).length;
   const withoutImage = rows.filter((r) => r.imageCount === 0).length;
+  const withoutCoords = rows.filter((r) => r.gaps.includes("coords")).length;
 
   return (
     <div>
@@ -135,6 +137,12 @@ export default async function PlacesPage({
             className="rounded border border-neutral-300 px-3 py-2 hover:border-neutral-500"
           >
             Dubletten prüfen
+          </Link>
+          <Link
+            href="/admin/places/coordinates"
+            className="rounded border border-neutral-300 px-3 py-2 hover:border-neutral-500"
+          >
+            Koordinaten nachtragen ({withoutCoords})
           </Link>
           <Link
             href="/admin/places/images"

@@ -13,7 +13,17 @@ export type AreaTargets = Record<AreaKey, number>;
 
 export interface SelectablePlace {
   id: string;
-  type: "village" | "sight" | "viewpoint" | "beach" | "restaurant" | "bar" | "hotel" | "event" | "practical";
+  type:
+    | "village"
+    | "sight"
+    | "viewpoint"
+    | "beach"
+    | "restaurant"
+    | "bar"
+    | "hotel"
+    | "event"
+    | "practical"
+    | "daytrip";
   name: string;
   lat: number;
   lng: number;
@@ -278,6 +288,9 @@ export function computeTargets(
     ),
     bars: Math.max(0, clamp(days * 0.8 * paceFactor, 2, 8) + d("bars")),
     hotels: Math.max(0, clamp(days * 0.6 * paceFactor, 2, 8) + d("hotels")),
+    // Tagesausflüge braucht man nicht täglich – etwa jeder dritte Reisetag,
+    // mindestens einer, damit das Kapitel nie leer bleibt.
+    daytrips: Math.max(0, clamp(days / 3, 1, 6) + d("daytrips")),
   };
 }
 
@@ -315,6 +328,9 @@ export function selectContent(
   const budget = scored(fancyByTier.budget);
 
   const bars = scored(places.filter((p) => p.type === "bar" && restaurantPassesHardFilters(p, q)));
+  const daytrips = scored(
+    places.filter((p) => p.type === "daytrip" && placePassesHardFilters(p, q))
+  );
   const hotels = scored(places.filter((p) => p.type === "hotel" && placePassesHardFilters(p, q)));
   // Veranstaltungen: alle passenden (meist wenige) übernehmen
   const eventIds = places
@@ -336,6 +352,7 @@ export function selectContent(
   const pickedBars = pickWithSpread(bars, targets.bars);
   const pickedHotels = pickWithSpread(hotels, targets.hotels);
   const pickedHikes = pickWithSpread(hikeCandidates, hikeTarget);
+  const pickedDaytrips = pickWithSpread(daytrips, targets.daytrips);
 
   const practicalIds = places.filter((p) => p.type === "practical").map((p) => p.id);
 
@@ -346,7 +363,7 @@ export function selectContent(
     .filter(
       (p) =>
         p.mustSee &&
-        ["village", "sight", "viewpoint", "beach", "hotel", "event"].includes(p.type) &&
+        ["village", "sight", "viewpoint", "beach", "hotel", "event", "daytrip"].includes(p.type) &&
         placePassesHardFilters(p, q)
     )
     .map((p) => p.id);
@@ -366,6 +383,7 @@ export function selectContent(
     placeIds: uniq([
       ...pickedSights.map((p) => p.id),
       ...pickedHotels.map((p) => p.id),
+      ...pickedDaytrips.map((p) => p.id),
       ...eventIds,
       ...mustSeePlaceIds,
     ]),
@@ -385,6 +403,7 @@ export function selectContent(
       food: { fancy: pickedFancy.length, mid: pickedMid.length, budget: pickedBudget.length },
       bars: pickedBars.length,
       hotels: pickedHotels.length,
+      daytrips: pickedDaytrips.length,
       hikes: pickedHikes.length,
       days: tripDays(q),
     },

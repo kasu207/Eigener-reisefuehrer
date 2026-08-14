@@ -73,6 +73,7 @@ const SUBSECTIONS: SubSection[] = [
   { kind: "types", title: "Ausgehen & Aperitivo", types: ["bar"], area: "bars" },
   { kind: "types", title: "Unterkunft", types: ["hotel"], area: "hotels" },
   { kind: "types", title: "Veranstaltungen", types: ["event"] },
+  { kind: "types", title: "Tagesausflüge", types: ["daytrip"], area: "daytrips" },
   { kind: "types", title: "Praktisches vor Ort", types: ["practical"] },
 ];
 

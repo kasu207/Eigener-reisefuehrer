@@ -329,3 +329,45 @@ describe("gesetzte Einträge (❤️ In den Guide)", () => {
     expect(validateContentAgainstSelection(content, selection).ok).toBe(true);
   });
 });
+
+describe("Tagesausflüge", () => {
+  it("wählt Tagesausflüge aus und legt sie zu den Orten", () => {
+    const q = makeQuestionnaire();
+    const trip = makePlace({ id: "trip", type: "daytrip", name: "Bergamo" });
+    const selection = selectContent([trip], [], q);
+    expect(selection.placeIds).toContain("trip");
+  });
+
+  it("skaliert die Menge mit der Reisedauer, aber bleibt sparsam", () => {
+    // Ein Tagesausflug will geplant werden – nicht jeder Tag ist einer.
+    const kurz = computeTargets(makeQuestionnaire({ dateFrom: "2026-08-01", dateTo: "2026-08-03" }));
+    const lang = computeTargets(makeQuestionnaire({ dateFrom: "2026-08-01", dateTo: "2026-08-21" }));
+    expect(kurz.daytrips).toBeGreaterThanOrEqual(1);
+    expect(lang.daytrips).toBeGreaterThan(kurz.daytrips);
+    expect(lang.daytrips).toBeLessThanOrEqual(6);
+  });
+
+  it("respektiert das Pro-Bereich-Feintuning", () => {
+    const q = makeQuestionnaire();
+    const ohne = computeTargets(q);
+    const mehr = computeTargets(q, undefined, { daytrips: 3 });
+    expect(mehr.daytrips).toBe(ohne.daytrips + 3);
+  });
+
+  it("hält die harten Filter ein", () => {
+    // Kleine Kinder + nicht kindertauglich = raus, wie bei jedem anderen Typ
+    const q = makeQuestionnaire({ children: [{ ageGroup: "0-3", count: 1 }] });
+    const trip = makePlace({ id: "trip", type: "daytrip", childFriendly: false });
+    expect(selectContent([trip], [], q).placeIds).not.toContain("trip");
+  });
+
+  it("nimmt Must-See-Tagesausflüge unabhängig von der Zielmenge auf", () => {
+    const q = makeQuestionnaire();
+    const trips = Array.from({ length: 12 }, (_, i) =>
+      makePlace({ id: `t${i}`, type: "daytrip", qualityScore: 5 })
+    );
+    const pflicht = makePlace({ id: "pflicht", type: "daytrip", qualityScore: 1, mustSee: true });
+    const selection = selectContent([...trips, pflicht], [], q);
+    expect(selection.placeIds).toContain("pflicht");
+  });
+});

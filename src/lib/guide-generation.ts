@@ -216,7 +216,8 @@ async function prepareGuideData(
     bar: 5,
     hotel: 6,
     event: 7,
-    practical: 8,
+    daytrip: 8,
+    practical: 9,
   };
 
   type PlaceWithSources = Place & { sources: Source[] };
@@ -343,7 +344,7 @@ async function prepareGuideData(
       key: `town-${slug(town)}`,
       kind: "town",
       workingTitle: town,
-      instruction: `Dies ist das Ort-Kapitel für ${town}. Schreibe als Kapitel-Einleitung ("introText") ein lebendiges Kurzporträt des Ortes (4-6 Sätze): Charakter, Lage am See, Atmosphäre, wofür der Ort bekannt ist. Für jeden Eintrag einen einladenden, konkreten Empfehlungstext (3-5 Sätze), sodass man den Ort wirklich kennenlernt. Die Einträge umfassen Sehenswürdigkeiten, Essen & Trinken, Ausgehen, Unterkunft, Veranstaltungen und Praktisches – gehe auf die jeweilige Art passend ein (bei Hotels z. B. Lage/Charakter, bei Restaurants Küche/Ambiente).`,
+      instruction: `Dies ist das Ort-Kapitel für ${town}. Schreibe als Kapitel-Einleitung ("introText") ein lebendiges Kurzporträt des Ortes (4-6 Sätze): Charakter, Lage am See, Atmosphäre, wofür der Ort bekannt ist. Für jeden Eintrag einen einladenden, konkreten Empfehlungstext (3-5 Sätze), sodass man den Ort wirklich kennenlernt. Die Einträge umfassen Sehenswürdigkeiten, Essen & Trinken, Ausgehen, Unterkunft, Veranstaltungen, Tagesausflüge und Praktisches – gehe auf die jeweilige Art passend ein (bei Hotels z. B. Lage/Charakter, bei Restaurants Küche/Ambiente). Bei Tagesausflügen schreibe aus der Perspektive eines ganzen Tages ab diesem Ort: wie man hinkommt, was den Weg lohnt, wie viel Zeit man einplant.`,
       entries: sorted.map((p) => toEntryContext(p, allChunks)),
     });
   }

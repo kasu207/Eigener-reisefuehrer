@@ -23,8 +23,10 @@ Der Reiter **Kuratieren** bündelt alles zum schnellen Nachpflegen:
   deutlich günstiger als Opus). Nach Änderung Container neu starten.
 - **KI-Ortsvorschläge:** Ort/Stadt + Typ + Anzahl eingeben → die KI legt
   **Entwürfe** an (Name, Tags, Redaktionsnotiz). Wichtig: Das sind Vorschläge,
-  **keine** geprüften Fakten. Koordinaten (Regions-Mitte als Platzhalter),
-  Preise und Öffnungszeiten prüfst/ergänzt du, dann auf „Geprüft" stellen.
+  **keine** geprüften Fakten. Preise und Öffnungszeiten prüfst/ergänzt du, dann
+  auf „Geprüft" stellen. Die **Koordinaten werden automatisch ermittelt**
+  (Adresse → OpenStreetMap → Namenssuche → Ortsmitte); wie genau, steht in der
+  Redaktionsnotiz des Entwurfs.
 - **Reiseführer einlesen:** Link zur Wissensbibliothek (deine gekauften
   Bücher als PDF hochladen).
 - **Abdeckung je Ort:** Tabelle, die zeigt, wo Inhalte fehlen (rote `0`).
@@ -92,6 +94,7 @@ Felder:
 | `hotel` | Unterkunft |
 | `event` | Veranstaltungen |
 | `practical` | Praktisches vor Ort |
+| `daytrip` | Tagesausflüge |
 
 ### Preisklassen bei Essen & Trinken
 
@@ -103,6 +106,22 @@ Das **Preisniveau** eines Restaurants bestimmt sein Band im Buch:
 
 Für eine gute Mischung also: wenige Restaurants mit Preisniveau 4, viele mit
 2–3. Kleine Cafés bekommen Preisniveau 1.
+
+### Tagesausflüge
+
+Der Typ `daytrip` ist für Ziele gedacht, die einen **ganzen Tag ab diesem Ort**
+füllen: Nachbarorte (Como, Bergamo, Lugano), Bergbahnen, Talwanderungen,
+Fährrunden. Bewusst getrennt von `sight` – ein Tagesausflug wird anders geplant
+als ein Halt um die Ecke, und die KI schreibt ihn entsprechend (Anfahrt, Zeit,
+warum sich der Weg lohnt).
+
+Das Feld **Ort/Stadt** ist dabei der Ausgangspunkt, nicht das Ziel: Ein Ausflug
+nach Bergamo, den man von Varenna aus macht, bekommt `locality = Varenna`. So
+erscheint er im Varenna-Kapitel unter „Tagesausflüge". Willst du ihn in mehreren
+Orten anbieten, lege ihn pro Ausgangsort an.
+
+Im Guide gibt es je Ort einen eigenen Abschnitt mit „+"-Regler – die Reisenden
+können sich also weitere Ausflüge dazuholen.
 
 ### Bilder & Quellen (rechts auf der Ort-Seite)
 
@@ -219,6 +238,32 @@ Nachbardörfern nicht. Beim Zusammenführen wählst du den Eintrag, der bleibt:
 
 Fehltreffer lassen sich als „kein Duplikat" markieren; die Markierung steht
 unten auf der Seite und ist zurücknehmbar.
+
+### Koordinaten nachtragen (`/admin/places/coordinates`)
+
+Automatisch angelegte Orte bekamen früher die **Regions-Mitte** als Platzhalter
+– am Comer See steht der Pin damit im Wasser, und die Umkreis-Suche der
+Auswahl-Engine findet den Eintrag nicht. Diese Seite listet alle betroffenen
+Orte und ermittelt die Koordinaten in Stapeln zu 25.
+
+Die Ermittlung versucht der Reihe nach:
+
+1. **Adresse** (falls gepflegt) – am verlässlichsten,
+2. **Eintrag in OpenStreetMap** über den Namen im Umkreis des Ortes – punktgenau
+   und mit Beleg-Link,
+3. **Namenssuche** „Name, Ort",
+4. **Ortsmittelpunkt** – nicht exakt, aber wenigstens im richtigen Dorf.
+
+Findet sich gar nichts, bleibt der Ort unverändert stehen, damit du ihn auf der
+Seite wiederfindest und per Kartenklick setzen kannst. Treffer weit außerhalb
+der Region werden verworfen – ein gleichnamiger Ort in Süditalien wäre schlimmer
+als der Platzhalter, weil er echt aussieht.
+
+Der Lauf dauert bewusst rund eine Sekunde pro Ort: Mehr erlaubt die
+Nominatim-Nutzungsordnung nicht, und ein Schwall Anfragen führt zur Sperre.
+
+**Tipp:** Orte ohne Ort/Stadt zuerst nachtragen (Sammelaktion in der
+Orte-Liste). Ohne diesen Anhaltspunkt hat die Suche kaum eine Chance.
 
 ### Bilder nachtragen (`/admin/places/images`)
 

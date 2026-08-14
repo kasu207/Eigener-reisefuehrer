@@ -9,6 +9,27 @@ Format: neueste Einträge oben.
 
 ## Erledigt
 
+### 2026-08-14 · Koordinaten automatisch ermitteln + Kategorie „Tagesausflüge"
+
+- `src/lib/coordinates.ts`: `resolvePlaceCoordinates` als Kaskade
+  Adresse → OSM-POI (Namenssuche im Umkreis) → Freitext-Namenssuche →
+  Ortsmittelpunkt → Regions-Mitte. Treffer weit außerhalb der Region werden
+  verworfen (`isPlausible`, 60 km).
+- Eingebaut in KI-Ortsvorschläge und YouTube-Auswertung – beide setzten vorher
+  hart die Regions-Mitte.
+- `findOsmPoiByName` in `osm-places.ts` (Overpass-Namenssuche mit
+  Ähnlichkeitsschwelle 0,6).
+- Nominatim-Aufrufe laufen jetzt durch eine Warteschlange (1 Anfrage/Sekunde),
+  sonst sperrt ein Stapellauf die IP.
+- Neue Seite `/admin/places/coordinates`: listet Orte auf der Regions-Mitte,
+  verortet sie in Stapeln zu 25, einzeln oder gesammelt.
+- Neuer `PlaceType` **`daytrip`** samt AreaKey `daytrips`: eigener Abschnitt je
+  Ort-Kapitel im Guide (mit „+"-Regler), eigene Zielmenge (etwa jeder dritte
+  Reisetag, 1–6), eigener Mindestbestand in der Startklar-Prüfung, eigener
+  Prompt-Hinweis (Anfahrt, Zeitbedarf). `locality` ist der **Ausgangsort**,
+  nicht das Ziel.
+- Tests: 17 neue Fälle (205 gesamt).
+
 ### 2026-08-14 · Zusammenführung auf `main`
 
 Die drei Arbeitspakete unten entstanden auf einem Branch, der am **alten**
@@ -122,6 +143,25 @@ Bestand gelandet und in fremden Guides aufgetaucht. `ratePair` und
 Funktion, die Orte übergreifend liest oder verändert, zuerst fragen, ob
 `addedByRequestId` mitgedacht ist.
 
+### Platzhalter-Koordinaten sahen aus wie echte Daten
+
+**Symptom:** Kuratierte Orte lagen alle mitten im See.
+**Ursache:** `generatePlaceDrafts` und die YouTube-Auswertung setzten bewusst
+`region.centerLat/centerLng` als Platzhalter. Das ist ein gültiger Wert, kein
+`null` – also meldete nichts einen Fehler, und die Umkreis-Suche der
+Auswahl-Engine fand die Einträge einfach nicht. **Behebung:** Kaskade in
+`coordinates.ts`; wenn nichts gefunden wird, bleibt der Ort auf der Mitte
+stehen UND taucht in `/admin/places/coordinates` auf. **Lehre:** Ein
+Platzhalter, der wie ein echter Wert aussieht, versteckt das Problem, statt es
+zu melden – entweder als Lücke sichtbar machen oder gar nicht erst setzen.
+
+### Nominatim sperrt bei Stapelläufen
+
+Ein Nachtrag über hunderte Orte darf nicht parallel laufen: Nominatim erlaubt
+eine Anfrage pro Sekunde. `geocode.ts` serialisiert deshalb alle Aufrufe. Wer
+neue Massenoperationen baut, muss das mitdenken – die Stapelgröße im Admin ist
+bewusst auf 25 begrenzt.
+
 ### Freitext vs. kanonischer Ortsname
 
 Der Unterkunfts-Ort ist Freitext („Via Plinio 20, Torno"), `Place.locality` ein
@@ -143,6 +183,11 @@ kanonischer Name („Torno"). Exakter Vergleich findet nie etwas – immer
   viele Fehltreffer erscheinen: Schwellen anheben statt Sonderfälle einbauen.
 - **Preisklassen-Heuristik** (`priceTierFromTags`) ebenfalls nur gegen
   konstruierte Overpass-Antworten geprüft.
+- **Tagesausflüge brauchen Bestand.** Der neue Typ `daytrip` ist im Code fertig,
+  aber die Datenbank enthält noch keine Einträge – bis welche angelegt sind,
+  bleibt der Abschnitt im Guide leer. Es gibt bereits
+  `prisma/seed-daytrips-comer.ts`, das legt aber nur Wissens-Notizen an, keine
+  Orte. Ein Seed mit echten `daytrip`-Orten wäre der nächste Schritt.
 - **Wanderungen** haben keine Dubletten-Ansicht – dieselbe Logik ließe sich
   anwenden, falls dort Doppel-Einträge auftauchen.
 - **Kein ESLint** im Repo (`next lint` fragt interaktiv nach Setup). Wenn
