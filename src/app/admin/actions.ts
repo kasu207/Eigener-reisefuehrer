@@ -11,6 +11,15 @@ import {
 import { extractPlacesFromText, UnsafeExtractionError } from "@/lib/ai/extract-places";
 import { fetchYoutubeTranscript } from "@/lib/youtube/transcript";
 import { BROWSER_HEADERS } from "@/lib/http";
+import { parsePinnedIds } from "@/lib/generation-progress";
+import {
+  mergePlaceFields,
+  referencesAnyId,
+  remapIdList,
+  remapSelection,
+  remapStoredContent,
+  type IdMap,
+} from "@/lib/merge-places";
 import type {
   PlaceType,
   Access,
@@ -100,6 +109,153 @@ export async function deletePlace(fd: FormData) {
   await prisma.place.delete({ where: { id: str(fd, "id") } });
   revalidatePath("/admin/places");
   redirect("/admin/places");
+}
+
+// ---------- Orte: Sammelaktionen & Dubletten ----------
+
+function idList(fd: FormData, key: string): string[] {
+  return fd
+    .getAll(key)
+    .flatMap((v) => String(v).split(","))
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Sammelaktion auf mehreren Orten. Spart die Klickstrecke „öffnen, ändern,
+ * speichern, zurück" bei Routinearbeit (frisch importierte Entwürfe
+ * freigeben, Ort nachtragen, Ausschuss löschen).
+ */
+export async function bulkUpdatePlaces(fd: FormData) {
+  const ids = idList(fd, "ids");
+  const operation = str(fd, "operation");
+  if (ids.length === 0 || !operation) return;
+
+  switch (operation) {
+    case "verify":
+      await prisma.place.updateMany({
+        where: { id: { in: ids } },
+        data: { status: "verified", lastVerifiedAt: new Date() },
+      });
+      break;
+    case "draft":
+      await prisma.place.updateMany({ where: { id: { in: ids } }, data: { status: "draft" } });
+      break;
+    case "mustSee":
+      await prisma.place.updateMany({ where: { id: { in: ids } }, data: { mustSee: true } });
+      break;
+    case "unmustSee":
+      await prisma.place.updateMany({ where: { id: { in: ids } }, data: { mustSee: false } });
+      break;
+    case "locality": {
+      const locality = str(fd, "locality");
+      await prisma.place.updateMany({ where: { id: { in: ids } }, data: { locality } });
+      break;
+    }
+    case "delete":
+      await prisma.place.deleteMany({ where: { id: { in: ids } } });
+      break;
+    default:
+      return;
+  }
+  revalidatePath("/admin/places");
+  revalidatePath("/admin/places/duplicates");
+}
+
+/**
+ * Zwei oder mehr Orte zu einem zusammenführen.
+ *
+ * Heikel ist nicht das Löschen, sondern die Referenzen: Bestehende Guides
+ * zeigen per ID auf den Ort. Deshalb wandern Bilder und Quellen mit, die
+ * gepflegten Felder werden vereinigt, und alle Guide-Referenzen (Inhalt,
+ * Auswahl, gesetzte Einträge) zeigen anschließend auf den behaltenen Ort –
+ * erst dann verschwinden die Dubletten.
+ */
+export async function mergePlaces(fd: FormData) {
+  const keepId = str(fd, "keepId");
+  const mergeIds = idList(fd, "mergeIds").filter((id) => id !== keepId);
+  if (!keepId || mergeIds.length === 0) return;
+
+  const keep = await prisma.place.findUnique({ where: { id: keepId } });
+  const others = await prisma.place.findMany({ where: { id: { in: mergeIds } } });
+  if (!keep || others.length === 0) return;
+
+  const map: IdMap = new Map(others.map((o) => [o.id, keepId]));
+  const fields = mergePlaceFields(keep, others);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.image.updateMany({ where: { placeId: { in: mergeIds } }, data: { placeId: keepId } });
+    await tx.source.updateMany({ where: { placeId: { in: mergeIds } }, data: { placeId: keepId } });
+    await tx.place.update({
+      where: { id: keepId },
+      data: {
+        address: fields.address,
+        openingNotes: fields.openingNotes,
+        editorNotes: fields.editorNotes,
+        locality: fields.locality,
+        priceLevel: fields.priceLevel,
+        tags: fields.tags,
+        dietaryOptions: fields.dietaryOptions,
+        qualityScore: fields.qualityScore,
+        mustSee: fields.mustSee,
+        childFriendly: fields.childFriendly,
+        status: fields.status as ContentStatus,
+        lastVerifiedAt: fields.lastVerifiedAt,
+      },
+    });
+
+    // Referenzen in bestehenden Guides umschreiben
+    const guides = await tx.guide.findMany({ select: { id: true, content: true, selection: true } });
+    for (const guide of guides) {
+      if (!referencesAnyId(guide.content, mergeIds) && !referencesAnyId(guide.selection, mergeIds)) {
+        continue;
+      }
+      await tx.guide.update({
+        where: { id: guide.id },
+        data: {
+          content: JSON.parse(JSON.stringify(remapStoredContent(guide.content, map))),
+          selection: JSON.parse(JSON.stringify(remapSelection(guide.selection, map))),
+        },
+      });
+    }
+
+    // ... und in den gesetzten Einträgen der Anfragen
+    const requests = await tx.guideRequest.findMany({ select: { id: true, pinnedIds: true } });
+    for (const request of requests) {
+      if (!referencesAnyId(request.pinnedIds, mergeIds)) continue;
+      await tx.guideRequest.update({
+        where: { id: request.id },
+        data: { pinnedIds: remapIdList(parsePinnedIds(request.pinnedIds), map) },
+      });
+    }
+
+    await tx.place.deleteMany({ where: { id: { in: mergeIds } } });
+    await tx.duplicateDismissal.deleteMany({
+      where: { OR: [{ aId: { in: mergeIds } }, { bId: { in: mergeIds } }] },
+    });
+  });
+
+  revalidatePath("/admin/places");
+  revalidatePath("/admin/places/duplicates");
+  revalidatePath(`/admin/places/${keepId}`);
+}
+
+/** "Kein Duplikat": Paar dauerhaft aus der Dubletten-Ansicht nehmen. */
+export async function dismissDuplicate(fd: FormData) {
+  const [aId, bId] = [str(fd, "aId"), str(fd, "bId")].sort();
+  if (!aId || !bId || aId === bId) return;
+  await prisma.duplicateDismissal.upsert({
+    where: { aId_bId: { aId, bId } },
+    create: { aId, bId },
+    update: {},
+  });
+  revalidatePath("/admin/places/duplicates");
+}
+
+/** Markierung zurücknehmen – das Paar wird wieder geprüft. */
+export async function restoreDuplicatePair(fd: FormData) {
+  await prisma.duplicateDismissal.deleteMany({ where: { id: str(fd, "id") } });
+  revalidatePath("/admin/places/duplicates");
 }
 
 /**

@@ -9,7 +9,7 @@ Getestet für einen einzelnen Linux-Server mit Docker + Docker-Compose-Plugin
 ssh root@49.12.97.244
 
 # Variante A: privates GitHub-Repo klonen (Personal Access Token nötig)
-git clone -b claude/mvp-anforderungen-lahn6c https://github.com/kasu207/Eigener-reisefuehrer-.git reisefuehrer
+git clone -b main https://github.com/kasu207/Eigener-reisefuehrer.git reisefuehrer
 cd reisefuehrer
 
 # Variante B: ohne GitHub-Zugang – vom eigenen Rechner hochladen:
@@ -74,7 +74,19 @@ Falls Port 80 nicht erreichbar ist: Hetzner-Cloud-Firewall bzw. `ufw allow 80/tc
 
 ```bash
 cd ~/reisefuehrer
-git pull
+git pull origin main
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Der `app`-Container wendet beim Start automatisch das DB-Schema an
+(`prisma db push`) – Schema-Änderungen brauchen also keinen Extra-Schritt, nur
+den Rebuild. Läuft der Server noch auf einem alten Branch, einmalig umstellen:
+
+```bash
+cd ~/reisefuehrer
+git fetch origin
+git checkout main
+git pull origin main
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 

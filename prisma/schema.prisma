@@ -266,6 +266,22 @@ model Image {
   @@map("images")
 }
 
+/// Von der Redaktion ausdrücklich als "kein Duplikat" markiertes Ortspaar.
+/// Ohne das würde die Dubletten-Ansicht dieselben Fehltreffer (z. B. zwei
+/// echte "Bar Centrale" in Nachbardörfern) bei jedem Aufruf erneut zeigen.
+/// Bewusst ohne Fremdschlüssel: Ein gelöschter Ort macht den Eintrag
+/// wirkungslos, nicht kaputt; die Ansicht ignoriert unbekannte IDs.
+model DuplicateDismissal {
+  id        String   @id @default(cuid())
+  /// Kleinere der beiden IDs zuerst – macht das Paar richtungsunabhängig.
+  aId       String   @map("a_id")
+  bId       String   @map("b_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([aId, bId])
+  @@map("duplicate_dismissals")
+}
+
 model Source {
   id         String     @id @default(cuid())
   placeId    String?    @map("place_id")
